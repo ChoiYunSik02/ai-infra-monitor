@@ -1,0 +1,2525 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Infra Monitor · 임베디드 리눅스</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:        #0f172a;
+  --surface:   #1e293b;
+  --surface2:  #263246;
+  --border:    #334155;
+  --text:      #e2e8f0;
+  --muted:     #94a3b8;
+  --dim:       #64748b;
+  --blue:      #38bdf8;
+  --green:     #22c55e;
+  --yellow:    #f59e0b;
+  --red:       #ef4444;
+  --purple:    #8b5cf6;
+  --sidebar-w: 220px;
+}
+html, body { height: 100%; overflow: hidden; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
+a { color: inherit; text-decoration: none; }
+
+/* Top Bar */
+.topbar { height: 54px; min-height: 54px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 16px; z-index: 10; }
+.topbar-logo { font-size: 1.15rem; font-weight: 800; color: var(--blue); letter-spacing: -0.02em; white-space: nowrap; }
+.topbar-logo span { color: var(--muted); font-weight: 400; font-size: 0.78rem; margin-left: 6px; }
+.topbar-spacer { flex: 1; }
+.topbar-clock { font-size: 0.82rem; color: var(--dim); font-variant-numeric: tabular-nums; }
+.status-pill { display: flex; align-items: center; gap: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 99px; padding: 4px 12px; font-size: 0.78rem; color: var(--muted); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Layout */
+.layout { display: flex; flex: 1; overflow: hidden; }
+
+/* Sidebar */
+.sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; padding: 12px 0; }
+.nav-section { padding: 8px 12px 4px; font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.1em; }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 16px; cursor: pointer; border-radius: 0; font-size: 0.875rem; color: var(--muted); border-left: 3px solid transparent; transition: background 0.15s, color 0.15s; user-select: none; }
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: rgba(56,189,248,0.08); color: var(--blue); border-left-color: var(--blue); }
+.nav-icon { font-size: 1rem; width: 20px; text-align: center; }
+.sidebar-divider { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+.service-badge { display: flex; align-items: center; justify-content: space-between; padding: 7px 16px; font-size: 0.78rem; color: var(--muted); }
+.service-badge a { color: var(--blue); font-size: 0.72rem; }
+.sdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+.sdot-on  { background: var(--green);  box-shadow: 0 0 5px var(--green); }
+.sdot-off { background: var(--dim); }
+
+/* Main Content */
+.main { flex: 1; overflow-y: auto; padding: 24px 28px; }
+
+/* Tab Panels */
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Sub Nav (internal pill tabs) */
+.sub-nav { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+.sub-nav-btn { padding: 7px 16px; border-radius: 99px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); font-size: 0.82rem; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.sub-nav-btn:hover { border-color: var(--blue); color: var(--text); }
+.sub-nav-btn.active { background: rgba(56,189,248,0.15); border-color: var(--blue); color: var(--blue); font-weight: 600; }
+
+/* Sub Panels */
+.vsub, .lsub { display: none; }
+.vsub.active, .lsub.active { display: block; }
+
+/* Cards */
+.card { background: var(--surface); border-radius: 12px; padding: 20px; border: 1px solid var(--border); }
+.card-title { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+.card-value { font-size: 2rem; font-weight: 700; color: var(--text); line-height: 1; }
+.card-sub { font-size: 0.78rem; color: var(--dim); margin-top: 5px; }
+
+/* Grids */
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+.grid-2-3 { display: grid; grid-template-columns: 2fr 3fr; gap: 16px; margin-bottom: 20px; }
+.mb-20 { margin-bottom: 20px; }
+.section-header { font-size: 0.88rem; font-weight: 600; color: var(--muted); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+
+/* Progress Bar */
+.pbar { background: var(--border); border-radius: 4px; height: 7px; margin-top: 10px; overflow: hidden; }
+.pfill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+.fill-ok   { background: var(--green); }
+.fill-warn { background: var(--yellow); }
+.fill-crit { background: var(--red); }
+
+/* Badge */
+.badge { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 0.72rem; font-weight: 700; }
+.badge-info     { background: #0ea5e9; color: #fff; }
+.badge-warning  { background: var(--yellow); color: #000; }
+.badge-critical { background: var(--red); color: #fff; }
+.badge-user     { background: var(--purple); color: #fff; }
+.badge-assistant{ background: var(--blue); color: #000; }
+
+/* Table */
+table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+th { text-align: left; padding: 8px 10px; color: var(--dim); border-bottom: 1px solid var(--border); font-weight: 500; }
+td { padding: 8px 10px; border-bottom: 1px solid #1a2333; color: #cbd5e1; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--surface2); }
+
+/* Button */
+.btn { padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.875rem; font-weight: 600; transition: opacity 0.2s, transform 0.1s; }
+.btn:hover { opacity: 0.85; transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn-primary { background: #3b82f6; color: #fff; }
+.btn-green   { background: var(--green); color: #000; }
+.btn-red     { background: var(--red); color: #fff; }
+.btn-sm { padding: 5px 12px; font-size: 0.78rem; }
+
+/* Charts */
+.chart-wrap { background: var(--surface); border-radius: 12px; border: 1px solid var(--border); padding: 16px 20px; margin-bottom: 16px; }
+.chart-wrap h3 { font-size: 0.82rem; color: var(--muted); margin-bottom: 12px; }
+
+/* Chat */
+.chat-container { display: flex; flex-direction: column; height: calc(100vh - 300px); min-height: 360px; }
+.chat-messages { flex: 1; overflow-y: auto; padding: 12px; background: var(--bg); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 12px; }
+.chat-msg { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start; }
+.chat-msg.user { flex-direction: row-reverse; }
+.chat-avatar { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0; }
+.chat-msg.user .chat-avatar    { background: var(--purple); }
+.chat-msg.assistant .chat-avatar { background: var(--blue); }
+.chat-bubble { max-width: 72%; background: var(--surface); border-radius: 12px; padding: 10px 14px; font-size: 0.86rem; line-height: 1.6; border: 1px solid var(--border); white-space: pre-wrap; word-break: break-word; }
+.chat-msg.user .chat-bubble { background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.3); }
+.chat-time { font-size: 0.68rem; color: var(--dim); margin-top: 4px; text-align: right; }
+.chat-input-row { display: flex; gap: 8px; }
+.chat-input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; color: var(--text); font-size: 0.875rem; outline: none; resize: none; font-family: inherit; transition: border-color 0.2s; }
+.chat-input:focus { border-color: var(--blue); }
+.quick-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.quick-btn { padding: 4px 12px; border-radius: 99px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); font-size: 0.75rem; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.quick-btn:hover { background: var(--blue); color: #000; border-color: var(--blue); }
+
+/* AI Analysis */
+#ai-result { display: none; margin-top: 14px; padding: 16px; background: var(--bg); border-radius: 10px; border: 1px solid var(--border); white-space: pre-wrap; font-size: 0.86rem; line-height: 1.6; color: var(--text); max-height: 300px; overflow-y: auto; }
+.thinking { color: var(--muted); font-style: italic; animation: blink 1s infinite; }
+@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+/* Services Grid */
+.services-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.svc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; transition: border-color 0.2s, transform 0.15s; text-decoration: none; display: block; }
+.svc-card:hover { border-color: var(--blue); transform: translateY(-2px); }
+.svc-name { font-size: 0.9rem; font-weight: 700; color: var(--blue); margin-bottom: 4px; }
+.svc-desc { font-size: 0.72rem; color: var(--dim); line-height: 1.4; }
+.svc-port { font-size: 0.7rem; color: var(--border); margin-top: 8px; font-family: monospace; }
+.svc-tech { font-size: 0.68rem; color: var(--purple); margin-top: 3px; }
+
+/* Windows 차트 그리드 */
+.wcg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
+.wcc { background: var(--surface); border: 1px solid var(--border); border-top: 2px solid var(--cc, #38bdf8); border-radius: 8px; padding: 10px 14px; }
+.wct { font-size: 0.67rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; }
+.wcv { font-size: 1.25rem; font-weight: 700; color: var(--cc, #38bdf8); margin-bottom: 6px; line-height: 1; font-variant-numeric: tabular-nums; }
+.win-chart-hdr { font-size: 0.8rem; color: var(--muted); margin-bottom: 10px; padding-bottom: 7px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+.win-live-badge { margin-left: auto; font-size: 0.7rem; color: var(--green); display: flex; align-items: center; gap: 4px; }
+
+/* DB Dashboard */
+.db-table-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #1a2333; font-size: 0.82rem; }
+.db-table-row:last-child { border-bottom: none; }
+.db-count-badge { font-size: 0.78rem; font-weight: 700; padding: 2px 10px; border-radius: 99px; }
+
+/* Threshold inputs */
+.th-input { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:6px 10px; color:var(--text); font-size:0.88rem; outline:none; font-family:inherit; }
+.th-input:focus { border-color:var(--blue); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
+@media (max-width: 1024px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .services-grid { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-logo">AI Infra Monitor <span>임베디드 리눅스 통합 플랫폼</span></div>
+  <div class="topbar-spacer"></div>
+  <div class="status-pill"><div class="live-dot"></div>Live</div>
+  <div class="topbar-clock" id="clock"></div>
+</div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="nav-section">메인 메뉴</div>
+    <div class="nav-item active" onclick="switchTab('vmware', this)">
+      <span class="nav-icon">🐧</span> VMware Zorin OS
+    </div>
+    <div class="nav-item" onclick="switchTab('windows', this)">
+      <span class="nav-icon">🖥️</span> Windows 노트북
+    </div>
+    <div class="nav-item" onclick="switchTab('ai', this)">
+      <span class="nav-icon">🤖</span> AI 채팅
+    </div>
+    <div class="nav-item" onclick="switchTab('alldb', this)">
+      <span class="nav-icon">🗃️</span> All DB Dashboard
+    </div>
+    <div class="nav-item" onclick="switchTab('alerts', this)">
+      <span class="nav-icon">🚨</span> 알림 이력
+    </div>
+    <div class="nav-item" onclick="switchTab('services', this)">
+      <span class="nav-icon">🔗</span> 서비스
+    </div>
+
+    <hr class="sidebar-divider">
+    <div class="nav-section">서비스 상태</div>
+    <div class="service-badge"><span><span class="sdot sdot-on"></span>Django</span><a class="svc-link" data-port="8000" href="#" target="_blank">:8000</a></div>
+    <div class="service-badge"><span><span class="sdot sdot-on"></span>MySQL</span><span style="font-size:0.7rem;color:var(--dim)">:3306</span></div>
+    <div class="service-badge"><span><span class="sdot {% if mongo_ok %}sdot-on{% else %}sdot-off{% endif %}"></span>MongoDB</span><span style="font-size:0.7rem;color:var(--dim)">:27017</span></div>
+    <div class="service-badge"><span><span class="sdot sdot-on"></span>Grafana</span><a class="svc-link" data-port="3000" href="#" target="_blank">:3000</a></div>
+    <div class="service-badge"><span><span class="sdot sdot-on"></span>Node-RED</span><a class="svc-link" data-port="1880" data-path="/ui" href="#" target="_blank">:1880</a></div>
+    <div class="service-badge"><span><span class="sdot sdot-on"></span>n8n</span><a class="svc-link" data-port="5678" href="#" target="_blank">:5678</a></div>
+    <div class="service-badge"><span><span class="sdot sdot-on"></span>PHP</span><a class="svc-link" data-port="8080" href="#" target="_blank">:8080</a></div>
+    <div class="service-badge"><span><span class="sdot sdot-off sdot-ollama"></span>Ollama</span><span style="font-size:0.7rem;color:var(--dim)">ext</span></div>
+
+    <hr class="sidebar-divider">
+    <div class="nav-section">데이터베이스</div>
+    <div class="service-badge"><span>MySQL 레코드</span><span style="color:var(--blue);font-size:0.78rem;" id="mysql-count">...</span></div>
+    <div class="service-badge"><span>MongoDB 로그</span><span style="color:var(--green);font-size:0.78rem;" id="mongo-count">{{ mongo_count }}</span></div>
+    <div class="service-badge"><span>SQLite 채팅</span><span style="color:var(--purple);font-size:0.78rem;" id="sqlite-count">{{ chat_history|length }}</span></div>
+  </nav>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- ═══ TAB: VMware Zorin OS ══════════════════════════════════════ -->
+    <div id="tab-vmware" class="tab-panel active">
+
+      <!-- 내부 서브 탭 -->
+      <div class="sub-nav">
+        <button class="sub-nav-btn active" onclick="switchSub('v','overview',this)">📊 개요</button>
+        <button class="sub-nav-btn" onclick="switchSub('v','cpu',this);loadVmCat('cpu')">⚙️ CPU</button>
+        <button class="sub-nav-btn" onclick="switchSub('v','mem',this);loadVmCat('mem')">🧠 메모리</button>
+        <button class="sub-nav-btn" onclick="switchSub('v','disk',this);loadVmCat('disk')">💿 디스크</button>
+        <button class="sub-nav-btn" onclick="switchSub('v','net',this);loadVmCat('net')">🌐 네트워크</button>
+      </div>
+
+      <!-- ── 서브: 개요 ── -->
+      <div id="vsub-overview" class="vsub active">
+        <div class="section-header">📊 Zorin OS VM — 실시간 시스템 현황</div>
+
+        {% if latest %}
+        <div class="grid-4">
+          <div class="card" id="card-cpu">
+            <div class="card-title">CPU 사용률</div>
+            <div class="card-value" id="val-cpu"
+                 style="color:{% if latest.cpu_usage > 80 %}var(--red){% elif latest.cpu_usage > 60 %}var(--yellow){% else %}var(--green){% endif %}">
+              {{ latest.cpu_usage|floatformat:1 }}%
+            </div>
+            <div class="pbar"><div class="pfill {% if latest.cpu_usage > 80 %}fill-crit{% elif latest.cpu_usage > 60 %}fill-warn{% else %}fill-ok{% endif %}" id="bar-cpu" style="width:{{ latest.cpu_usage }}%"></div></div>
+          </div>
+          <div class="card">
+            <div class="card-title">메모리 사용률</div>
+            <div class="card-value" id="val-mem"
+                 style="color:{% if latest.mem_percent > 85 %}var(--red){% elif latest.mem_percent > 70 %}var(--yellow){% else %}var(--green){% endif %}">
+              {{ latest.mem_percent|floatformat:1 }}%
+            </div>
+            <div class="card-sub" id="val-mem-sub">{{ latest.mem_used_gb }}GB / {{ latest.mem_total_gb }}GB</div>
+            <div class="pbar"><div class="pfill {% if latest.mem_percent > 85 %}fill-crit{% elif latest.mem_percent > 70 %}fill-warn{% else %}fill-ok{% endif %}" id="bar-mem" style="width:{{ latest.mem_percent }}%"></div></div>
+          </div>
+          <div class="card">
+            <div class="card-title">디스크 사용률</div>
+            <div class="card-value" id="val-disk"
+                 style="color:{% if latest.disk_percent > 90 %}var(--red){% elif latest.disk_percent > 75 %}var(--yellow){% else %}var(--green){% endif %}">
+              {{ latest.disk_percent|floatformat:1 }}%
+            </div>
+            <div class="card-sub">{{ latest.disk_used_gb }}GB / {{ latest.disk_total_gb }}GB</div>
+            <div class="pbar"><div class="pfill {% if latest.disk_percent > 90 %}fill-crit{% elif latest.disk_percent > 75 %}fill-warn{% else %}fill-ok{% endif %}" id="bar-disk" style="width:{{ latest.disk_percent }}%"></div></div>
+          </div>
+          <div class="card">
+            <div class="card-title">마지막 수집</div>
+            <div class="card-value" style="font-size:0.95rem;line-height:1.4;" id="val-host">{{ latest.hostname }}</div>
+            <div class="card-sub" id="val-time">{{ latest.recorded_at }}</div>
+            <div style="margin-top:8px;font-size:0.78rem;color:var(--green);"><span class="live-dot" style="display:inline-block;"></span> 5초 갱신</div>
+          </div>
+        </div>
+        {% else %}
+        <div class="card mb-20"><p style="color:var(--muted)">Node-RED 플로우가 시작되면 데이터가 표시됩니다.</p></div>
+        {% endif %}
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:10px;">최근 수집 메트릭 (MySQL)</div>
+            <table>
+              <thead><tr><th>시각</th><th>CPU</th><th>메모리</th><th>디스크</th></tr></thead>
+              <tbody id="metrics-tbody">
+                {% for m in recent_metrics %}
+                <tr>
+                  <td>{{ m.recorded_at|date:"H:i:s" }}</td>
+                  <td style="color:{% if m.cpu_usage > 80 %}var(--red){% elif m.cpu_usage > 60 %}var(--yellow){% else %}var(--green){% endif %}">{{ m.cpu_usage|floatformat:1 }}%</td>
+                  <td>{{ m.mem_percent|floatformat:1 }}%</td>
+                  <td>{{ m.disk_percent|floatformat:1 }}%</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="4" style="color:var(--dim)">데이터 없음</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title" style="margin-bottom:8px;">실시간 트렌드 (5초 갱신)</div>
+            <div style="margin-bottom:12px;">
+              <div style="font-size:0.72rem;color:#38bdf8;margin-bottom:4px;">🔵 CPU 사용률 (%)</div>
+              <canvas id="chart-cpu" height="60"></canvas>
+            </div>
+            <div style="margin-bottom:12px;">
+              <div style="font-size:0.72rem;color:#22c55e;margin-bottom:4px;">🟢 메모리 사용률 (%)</div>
+              <canvas id="chart-mem" height="60"></canvas>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:#f59e0b;margin-bottom:4px;">🟡 디스크 사용률 (%)</div>
+              <canvas id="chart-disk" height="60"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="card" style="border-left:3px solid #3b82f6;">
+            <div class="card-title">MySQL</div>
+            <div class="card-value" style="font-size:1.5rem;" id="stat-mysql">...</div>
+            <div class="card-sub">구조화 메트릭 데이터 (5초 수집)</div>
+          </div>
+          <div class="card" style="border-left:3px solid var(--green);">
+            <div class="card-title">MongoDB (VMware)</div>
+            <div class="card-value" style="font-size:1.5rem;">{{ mongo_count }}</div>
+            <div class="card-sub">Zorin OS 원시 로그 (Node-RED→Django)</div>
+          </div>
+          <div class="card" style="border-left:3px solid var(--purple);">
+            <div class="card-title">SQLite</div>
+            <div class="card-value" style="font-size:1.5rem;" id="stat-sqlite">{{ chat_history|length }}</div>
+            <div class="card-sub">AI 채팅 히스토리 (로컬 저장)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 서브: CPU ── -->
+      <div id="vsub-cpu" class="vsub">
+        <div class="section-header">⚙️ CPU 사용률 — 상세 로그</div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">현재 CPU 사용률</div>
+            <div class="card-value" id="vcat-cpu-val">—</div>
+            <div class="pbar"><div class="pfill" id="vcat-cpu-bar" style="width:0%"></div></div>
+            <div class="card-sub" id="vcat-cpu-time"></div>
+          </div>
+          <div class="card">
+            <div style="font-size:0.72rem;color:#38bdf8;margin-bottom:6px;">🔵 CPU 사용률 추이 (%)</div>
+            <canvas id="vcat-chart-cpu" height="80"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;margin-bottom:10px;">
+            <span class="card-title" style="margin:0;">CPU 메트릭 로그 (MySQL)</span>
+            <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="loadVmCat('cpu')">새로고침</button>
+          </div>
+          <table>
+            <thead><tr><th>시각</th><th>호스트</th><th>CPU 사용률</th></tr></thead>
+            <tbody id="vcat-cpu-tbody">
+              <tr><td colspan="3" style="color:var(--dim);text-align:center;">탭 클릭 시 로드됩니다</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── 서브: 메모리 ── -->
+      <div id="vsub-mem" class="vsub">
+        <div class="section-header">🧠 메모리 사용률 — 상세 로그</div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">현재 메모리 사용률</div>
+            <div class="card-value" id="vcat-mem-val">—</div>
+            <div class="pbar"><div class="pfill" id="vcat-mem-bar" style="width:0%"></div></div>
+            <div class="card-sub" id="vcat-mem-detail"></div>
+          </div>
+          <div class="card">
+            <div style="font-size:0.72rem;color:#22c55e;margin-bottom:6px;">🟢 메모리 사용률 추이 (%)</div>
+            <canvas id="vcat-chart-mem" height="80"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;margin-bottom:10px;">
+            <span class="card-title" style="margin:0;">메모리 메트릭 로그 (MySQL)</span>
+            <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="loadVmCat('mem')">새로고침</button>
+          </div>
+          <table>
+            <thead><tr><th>시각</th><th>메모리 %</th><th>사용/전체</th></tr></thead>
+            <tbody id="vcat-mem-tbody">
+              <tr><td colspan="3" style="color:var(--dim);text-align:center;">탭 클릭 시 로드됩니다</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── 서브: 디스크 ── -->
+      <div id="vsub-disk" class="vsub">
+        <div class="section-header">💿 디스크 사용률 — 상세 로그</div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">현재 디스크 사용률</div>
+            <div class="card-value" id="vcat-disk-val">—</div>
+            <div class="pbar"><div class="pfill" id="vcat-disk-bar" style="width:0%"></div></div>
+            <div class="card-sub" id="vcat-disk-detail"></div>
+          </div>
+          <div class="card">
+            <div style="font-size:0.72rem;color:#f59e0b;margin-bottom:6px;">🟡 디스크 사용률 추이 (%)</div>
+            <canvas id="vcat-chart-disk" height="80"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;margin-bottom:10px;">
+            <span class="card-title" style="margin:0;">디스크 메트릭 로그 (MySQL)</span>
+            <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="loadVmCat('disk')">새로고침</button>
+          </div>
+          <table>
+            <thead><tr><th>시각</th><th>디스크 %</th><th>사용/전체</th></tr></thead>
+            <tbody id="vcat-disk-tbody">
+              <tr><td colspan="3" style="color:var(--dim);text-align:center;">탭 클릭 시 로드됩니다</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── 서브: 네트워크 ── -->
+      <div id="vsub-net" class="vsub">
+        <div class="section-header">🌐 네트워크 I/O — 상세 로그</div>
+        <div class="card">
+          <div style="display:flex;align-items:center;margin-bottom:10px;">
+            <span class="card-title" style="margin:0;">네트워크 로그 (MongoDB metrics_raw)</span>
+            <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="loadVmCat('net')">새로고침</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr><th>시각</th><th>NET 송신</th><th>NET 수신</th><th>출처</th></tr></thead>
+              <tbody id="vcat-net-tbody">
+                <tr><td colspan="4" style="color:var(--dim);text-align:center;">탭 클릭 시 로드됩니다</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:10px;font-size:0.78rem;color:var(--dim);">
+            총 <span id="vcat-net-total" style="color:var(--green);">0</span>개 문서
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ═══ TAB: AI 채팅 ════════════════════════════════════════════ -->
+    <div id="tab-ai" class="tab-panel">
+
+      <!-- 시스템 선택 토글 -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 20px;">
+        <span style="font-size:0.82rem;color:var(--muted);font-weight:600;white-space:nowrap;">분석 대상</span>
+        <button id="ai-sys-vmware" class="sub-nav-btn active" style="border-radius:8px;" onclick="setAiSystem('vmware',this)">🐧 VMware Zorin OS</button>
+        <button id="ai-sys-windows" class="sub-nav-btn" style="border-radius:8px;" onclick="setAiSystem('windows',this)">🖥️ Windows 컴퓨터</button>
+        <span id="ai-sys-hint" style="margin-left:auto;font-size:0.75rem;color:var(--dim);">현재 메트릭 컨텍스트: VMware Zorin OS</span>
+      </div>
+
+      <!-- 서브 탭: 분석 / 채팅 -->
+      <div class="sub-nav">
+        <button class="sub-nav-btn active" onclick="switchSub('ai','analyze',this)">🔍 AI 분석</button>
+        <button class="sub-nav-btn" onclick="switchSub('ai','chat',this)">💬 AI 채팅</button>
+      </div>
+
+      <!-- AI 분석 -->
+      <div id="aisub-analyze" class="vsub active">
+        <div class="section-header">🤖 AI 시스템 상태 분석 (Ollama · {{ ollama_model }})</div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:12px;">현재 상태 분석 요청</div>
+            <p style="font-size:0.82rem;color:var(--muted);margin-bottom:14px;">
+              선택한 시스템의 최신 메트릭을 Ollama에 전송해 AI 분석 결과를 받습니다.<br>
+              모델: <code style="color:var(--blue);">{{ ollama_model }}</code> |
+              서버: <code style="color:var(--dim);">{{ ollama_host }}</code>
+            </p>
+            <button class="btn btn-primary" onclick="runAnalysis()">🔍 지금 분석 요청</button>
+            <div id="ai-result"></div>
+          </div>
+          <div class="card">
+            <div class="card-title" style="margin-bottom:10px;">최근 분석 이력 (MySQL)</div>
+            <div id="analysis-list">
+              {% for a in recent_analysis %}
+              <div style="margin-bottom:10px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border);">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                  <span class="badge badge-{{ a.severity }}">{{ a.get_severity_display }}</span>
+                  <span style="font-size:0.72rem;color:var(--dim);">{{ a.created_at }}</span>
+                </div>
+                <div style="font-size:0.82rem;color:var(--muted);">{{ a.title }}</div>
+                <div style="font-size:0.78rem;color:var(--dim);margin-top:4px;max-height:60px;overflow:hidden;">{{ a.analysis|truncatechars:180 }}</div>
+              </div>
+              {% empty %}
+              <p style="color:var(--dim);font-size:0.85rem;">분석 이력 없음 — 분석 요청 버튼을 눌러보세요</p>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI 채팅 -->
+      <div id="aisub-chat" class="vsub">
+        <div class="section-header">
+          💬 AI 채팅 (Ollama · SQLite 히스토리)
+          <button class="btn btn-red btn-sm" style="float:right;" onclick="clearChat()">초기화</button>
+        </div>
+        <div class="quick-btns">
+          <button class="quick-btn" onclick="sendQuick('현재 시스템 상태는 어때?')">시스템 상태</button>
+          <button class="quick-btn" onclick="sendQuick('CPU 사용률이 높을 때 원인과 해결 방법은?')">CPU 문제</button>
+          <button class="quick-btn" onclick="sendQuick('GPU 온도가 높을 때 대처 방법은?')">GPU 온도</button>
+          <button class="quick-btn" onclick="sendQuick('메모리 사용량이 높을 때 해결 방법은?')">메모리 문제</button>
+          <button class="quick-btn" onclick="sendQuick('Docker와 VMware의 차이점을 설명해줘')">Docker vs VM</button>
+          <button class="quick-btn" onclick="sendQuick('MongoDB와 MySQL의 차이점은?')">MongoDB vs MySQL</button>
+          <button class="quick-btn" onclick="sendQuick('Node-RED란 무엇인가요?')">Node-RED</button>
+          <button class="quick-btn" onclick="sendQuick('Django REST API 구성 방법은?')">Django API</button>
+        </div>
+        <div class="chat-container">
+          <div class="chat-messages" id="chat-messages">
+            {% for msg in chat_history %}
+            <div class="chat-msg {{ msg.role }}">
+              <div class="chat-avatar">{% if msg.role == 'user' %}👤{% else %}🤖{% endif %}</div>
+              <div>
+                <div class="chat-bubble">{{ msg.content }}</div>
+                <div class="chat-time">{{ msg.created_at }}</div>
+              </div>
+            </div>
+            {% empty %}
+            <div style="text-align:center;padding:40px;color:var(--dim);">
+              <div style="font-size:2rem;margin-bottom:8px;">🤖</div>
+              <div>Ollama AI 채팅을 시작하세요!</div>
+              <div style="font-size:0.78rem;margin-top:4px;">위 빠른 질문 버튼을 눌러보세요</div>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="chat-input-row">
+            <textarea class="chat-input" id="chat-input" rows="2" placeholder="질문을 입력하세요... (Shift+Enter: 줄바꿈, Enter: 전송)"></textarea>
+            <button class="btn btn-primary" onclick="sendChat()" id="chat-send-btn">전송</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB: 알림 이력 ════════════════════════════════════════ -->
+    <div id="tab-alerts" class="tab-panel">
+
+      <!-- ── 임계값 설정 ── -->
+      <div class="card mb-20">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+          <span style="font-size:1.1rem;">⚙️</span>
+          <span style="font-weight:700;font-size:0.95rem;">알림 임계값 설정</span>
+          <span style="font-size:0.75rem;color:var(--dim);margin-left:auto;">설정 후 [적용] 버튼을 눌러야 저장됩니다</span>
+        </div>
+        <div class="grid-2" style="gap:24px;">
+          <!-- VMware -->
+          <div>
+            <div style="font-size:0.78rem;color:#38bdf8;font-weight:700;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border);">🐧 VMware Zorin OS</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+              <div>
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">CPU 사용량 (%)</div>
+                <input type="number" id="th-vm-cpu" min="1" max="100" class="th-input" value="80">
+              </div>
+              <div>
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">RAM (%)</div>
+                <input type="number" id="th-vm-ram" min="1" max="100" class="th-input" value="85">
+              </div>
+              <div>
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">디스크 (%)</div>
+                <input type="number" id="th-vm-disk" min="1" max="100" class="th-input" value="90">
+              </div>
+            </div>
+          </div>
+          <!-- Windows -->
+          <div>
+            <div style="font-size:0.78rem;color:#a78bfa;font-weight:700;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border);">🖥️ Windows 노트북</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+              <div>
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">CPU 사용량 (%)</div>
+                <input type="number" id="th-win-cpu-pct" min="1" max="100" class="th-input" value="80">
+              </div>
+              <div>
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">CPU 온도 (°C)</div>
+                <input type="number" id="th-win-cpu-temp" min="30" max="120" class="th-input" value="85">
+              </div>
+              <div>
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">GPU 사용량 (%)</div>
+                <input type="number" id="th-win-gpu-pct" min="1" max="100" class="th-input" value="85">
+              </div>
+              <div>
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">GPU 온도 (°C)</div>
+                <input type="number" id="th-win-gpu-temp" min="30" max="120" class="th-input" value="85">
+              </div>
+              <div>
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">VRAM (%)</div>
+                <input type="number" id="th-win-vram" min="1" max="100" class="th-input" value="90">
+              </div>
+              <div>
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">RAM (%)</div>
+                <input type="number" id="th-win-ram" min="1" max="100" class="th-input" value="85">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:0.82rem;color:var(--muted);">알림 쿨다운</span>
+            <input type="number" id="th-cooldown" min="1" max="60" class="th-input" value="5" style="width:64px;">
+            <span style="font-size:0.82rem;color:var(--dim);">분 (같은 알림 재발송 간격)</span>
+          </div>
+          <button class="btn btn-primary" onclick="saveThresholds()">✅ 적용</button>
+          <span id="threshold-status" style="font-size:0.82rem;color:var(--green);"></span>
+        </div>
+      </div>
+
+      <!-- ── 알림 현황 카드 ── -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
+        <div class="card" style="border-top:2px solid #38bdf8;">
+          <div class="card-title" style="font-size:0.68rem;">🐧 VM CPU</div>
+          <div class="card-value" style="font-size:1.4rem;" id="alert-vm-cpu-cnt">0</div>
+          <div class="card-sub" id="alert-vm-cpu-th">임계 80%</div>
+          <div style="font-size:0.7rem;color:var(--dim);margin-top:4px;">현재 <span id="live-vm-cpu">—</span></div>
+        </div>
+        <div class="card" style="border-top:2px solid #22c55e;">
+          <div class="card-title" style="font-size:0.68rem;">🐧 VM RAM</div>
+          <div class="card-value" style="font-size:1.4rem;" id="alert-vm-ram-cnt">0</div>
+          <div class="card-sub" id="alert-vm-ram-th">임계 85%</div>
+          <div style="font-size:0.7rem;color:var(--dim);margin-top:4px;">현재 <span id="live-vm-ram">—</span></div>
+        </div>
+        <div class="card" style="border-top:2px solid #f59e0b;">
+          <div class="card-title" style="font-size:0.68rem;">🐧 VM 디스크</div>
+          <div class="card-value" style="font-size:1.4rem;" id="alert-vm-disk-cnt">0</div>
+          <div class="card-sub" id="alert-vm-disk-th">임계 90%</div>
+          <div style="font-size:0.7rem;color:var(--dim);margin-top:4px;">현재 <span id="live-vm-disk">—</span></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px;">
+        <div class="card" style="border-top:2px solid #38bdf8;">
+          <div class="card-title" style="font-size:0.67rem;">🖥️ CPU %</div>
+          <div class="card-value" style="font-size:1.3rem;" id="alert-win-cpu-cnt">0</div>
+          <div class="card-sub" id="alert-win-cpu-th">임계 80%</div>
+          <div style="font-size:0.7rem;color:var(--dim);margin-top:4px;">현재 <span id="live-win-cpu">—</span></div>
+        </div>
+        <div class="card" style="border-top:2px solid #f97316;">
+          <div class="card-title" style="font-size:0.67rem;">🖥️ CPU 온도</div>
+          <div class="card-value" style="font-size:1.3rem;" id="alert-win-ctemp-cnt">0</div>
+          <div class="card-sub" id="alert-win-ctemp-th">임계 85°C</div>
+          <div style="font-size:0.7rem;color:var(--dim);margin-top:4px;">현재 <span id="live-win-ctemp">—</span></div>
+        </div>
+        <div class="card" style="border-top:2px solid #a78bfa;">
+          <div class="card-title" style="font-size:0.67rem;">🖥️ GPU %</div>
+          <div class="card-value" style="font-size:1.3rem;" id="alert-win-gpu-cnt">0</div>
+          <div class="card-sub" id="alert-win-gpu-th">임계 85%</div>
+          <div style="font-size:0.7rem;color:var(--dim);margin-top:4px;">현재 <span id="live-win-gpu">—</span></div>
+        </div>
+        <div class="card" style="border-top:2px solid #ef4444;">
+          <div class="card-title" style="font-size:0.67rem;">🖥️ GPU 온도</div>
+          <div class="card-value" style="font-size:1.3rem;" id="alert-win-gtemp-cnt">0</div>
+          <div class="card-sub" id="alert-win-gtemp-th">임계 85°C</div>
+          <div style="font-size:0.7rem;color:var(--dim);margin-top:4px;">현재 <span id="live-win-gtemp">—</span></div>
+        </div>
+        <div class="card" style="border-top:2px solid #ec4899;">
+          <div class="card-title" style="font-size:0.67rem;">🖥️ VRAM %</div>
+          <div class="card-value" style="font-size:1.3rem;" id="alert-win-vram-cnt">0</div>
+          <div class="card-sub" id="alert-win-vram-th">임계 90%</div>
+          <div style="font-size:0.7rem;color:var(--dim);margin-top:4px;">현재 <span id="live-win-vram">—</span></div>
+        </div>
+        <div class="card" style="border-top:2px solid #22c55e;">
+          <div class="card-title" style="font-size:0.67rem;">🖥️ RAM %</div>
+          <div class="card-value" style="font-size:1.3rem;" id="alert-win-ram-cnt">0</div>
+          <div class="card-sub" id="alert-win-ram-th">임계 85%</div>
+          <div style="font-size:0.7rem;color:var(--dim);margin-top:4px;">현재 <span id="live-win-ram">—</span></div>
+        </div>
+      </div>
+
+      <!-- ── 텔레그램 봇 알림 로그 ── -->
+      <div class="card mb-20">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:1rem;">📱</span>
+          <span style="font-weight:700;font-size:0.88rem;">텔레그램 알림 발송 로그</span>
+          <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="loadBotLogs()">새로고침</button>
+        </div>
+        <div style="max-height:260px;overflow-y:auto;" id="bot-log-list">
+          <div style="color:var(--dim);font-size:0.82rem;text-align:center;padding:20px;">로딩 중...</div>
+        </div>
+      </div>
+
+      <!-- ── 전체 알림 로그 ── -->
+      <div class="card">
+        <div style="display:flex;align-items:center;margin-bottom:10px;">
+          <span style="font-weight:700;font-size:0.88rem;">🚨 전체 알림 로그</span>
+          <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="loadAlertStats()">새로고침</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>시각</th><th>시스템</th><th>항목</th><th>임계값</th><th>실제값</th><th>메시지</th>
+              </tr>
+            </thead>
+            <tbody id="alerts-tbody">
+              <tr><td colspan="6" style="color:var(--dim);text-align:center;padding:20px;">로딩 중...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB: All DB Dashboard ═════════════════════════════════ -->
+    <div id="tab-alldb" class="tab-panel">
+
+      <!-- 서브 탭 -->
+      <div class="sub-nav">
+        <button class="sub-nav-btn active" onclick="switchSub('db','overview',this); loadAllDb();">📊 전체 현황</button>
+        <button class="sub-nav-btn" onclick="switchSub('db','mysql',this); loadMysqlDetail();">🐬 MySQL</button>
+        <button class="sub-nav-btn" onclick="switchSub('db','mongo',this); loadVmwareLogs(); loadWindowsLogs();">🍃 MongoDB</button>
+        <button class="sub-nav-btn" onclick="switchSub('db','sqlite',this); loadSqliteDetail();">💾 SQLite</button>
+      </div>
+
+      <!-- ── 전체 현황 ── -->
+      <div id="dbsub-overview" class="vsub active">
+        <div class="section-header">
+          🗃️ 통합 데이터베이스 현황 — MySQL · MongoDB · SQLite
+          <button class="btn btn-primary btn-sm" style="float:right;" onclick="loadAllDb()">새로고침</button>
+        </div>
+
+        <div class="grid-3" id="alldb-summary">
+          <!-- MySQL 카드 -->
+          <div class="card" style="border-top:3px solid #3b82f6;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+              <span style="font-size:1.4rem;">🐬</span>
+              <div>
+                <div style="font-weight:700;color:#60a5fa;">MySQL 8.0</div>
+                <div style="font-size:0.72rem;color:var(--dim);">포트 3306 · 구조화 데이터</div>
+              </div>
+              <span id="mysql-ok-badge" style="margin-left:auto;font-size:0.72rem;padding:2px 8px;border-radius:99px;background:#1e3a5f;color:#60a5fa;">연결 중...</span>
+            </div>
+            <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">저장 데이터: VMware 시스템 메트릭 · AI 분석 결과 · 알림 이력 · Windows 메트릭 미러</div>
+            <div id="mysql-tables-list"><div style="color:var(--dim);font-size:0.82rem;">로딩 중...</div></div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:0.78rem;color:var(--dim);">
+              총 레코드: <span id="mysql-total-records" style="color:#60a5fa;font-weight:700;">...</span>
+            </div>
+          </div>
+
+          <!-- MongoDB 카드 -->
+          <div class="card" style="border-top:3px solid var(--green);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+              <span style="font-size:1.4rem;">🍃</span>
+              <div>
+                <div style="font-weight:700;color:var(--green);">MongoDB 7.0</div>
+                <div style="font-size:0.72rem;color:var(--dim);">포트 27017 · 비정형 문서</div>
+              </div>
+              <span id="mongo-ok-badge" style="margin-left:auto;font-size:0.72rem;padding:2px 8px;border-radius:99px;background:#1a3a2a;color:var(--green);">연결 중...</span>
+            </div>
+            <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">저장 데이터: VMware 원시 메트릭 (metrics_raw) · Windows 하드웨어 메트릭 (windows_metrics)</div>
+            <div id="mongo-colls-list"><div style="color:var(--dim);font-size:0.82rem;">로딩 중...</div></div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:0.78rem;color:var(--dim);">
+              총 문서: <span id="mongo-total-docs" style="color:var(--green);font-weight:700;">...</span>
+            </div>
+          </div>
+
+          <!-- SQLite 카드 -->
+          <div class="card" style="border-top:3px solid var(--purple);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+              <span style="font-size:1.4rem;">💾</span>
+              <div>
+                <div style="font-weight:700;color:var(--purple);">SQLite 3</div>
+                <div style="font-size:0.72rem;color:var(--dim);">/app/data/local.db · 로컬</div>
+              </div>
+              <span id="sqlite-ok-badge" style="margin-left:auto;font-size:0.72rem;padding:2px 8px;border-radius:99px;background:#2a1a3a;color:var(--purple);">연결 중...</span>
+            </div>
+            <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">저장 데이터: AI 채팅 히스토리 (사용자 메시지 + AI 응답)</div>
+            <div id="sqlite-tables-list"><div style="color:var(--dim);font-size:0.82rem;">로딩 중...</div></div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:0.78rem;color:var(--dim);">
+              총 레코드: <span id="sqlite-total-records" style="color:var(--purple);font-weight:700;">...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 간단 미리보기 -->
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:10px;">MySQL — 최근 시스템 메트릭 (monitor_systemmetric)</div>
+            <table>
+              <thead><tr><th>시각</th><th>CPU %</th><th>MEM %</th><th>DISK %</th></tr></thead>
+              <tbody id="alldb-mysql-tbody">
+                {% for m in recent_metrics|slice:":8" %}
+                <tr>
+                  <td style="font-size:0.78rem;">{{ m.recorded_at|date:"H:i:s" }}</td>
+                  <td style="color:{% if m.cpu_usage > 80 %}var(--red){% elif m.cpu_usage > 60 %}var(--yellow){% else %}var(--green){% endif %}">{{ m.cpu_usage|floatformat:1 }}%</td>
+                  <td>{{ m.mem_percent|floatformat:1 }}%</td>
+                  <td>{{ m.disk_percent|floatformat:1 }}%</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="4" style="color:var(--dim)">데이터 없음</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title" style="margin-bottom:10px;">SQLite — AI 채팅 히스토리 (monitor_chatmessage)</div>
+            <table>
+              <thead><tr><th>역할</th><th>메시지</th><th>시각</th></tr></thead>
+              <tbody>
+                {% for msg in chat_history|slice:":8" %}
+                <tr>
+                  <td><span class="badge badge-{{ msg.role }}">{{ msg.role }}</span></td>
+                  <td style="font-size:0.78rem;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ msg.content|truncatechars:80 }}</td>
+                  <td style="font-size:0.72rem;color:var(--dim);">{{ msg.created_at|date:"H:i" }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" style="color:var(--dim)">채팅 이력 없음</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── MySQL 상세 ── -->
+      <div id="dbsub-mysql" class="vsub">
+        <div class="section-header">
+          🐬 MySQL 8.0 — 테이블 구조 및 저장 데이터
+          <button class="btn btn-primary btn-sm" style="float:right;" onclick="loadMysqlDetail()">새로고침</button>
+        </div>
+
+        <!-- 테이블 설명 카드 -->
+        <div class="grid-2" style="margin-bottom:20px;">
+          <div class="card" style="border-left:3px solid #38bdf8;">
+            <div style="font-weight:700;color:#38bdf8;margin-bottom:6px;">monitor_systemmetric</div>
+            <div style="font-size:0.78rem;color:var(--muted);line-height:1.7;">
+              <b>수집 주기:</b> 5초 (Node-RED → collect_metrics.sh)<br>
+              <b>저장 필드:</b> hostname, cpu_usage, mem_total/used/percent, disk_total/used/percent, net_bytes_sent/recv, recorded_at<br>
+              <b>용도:</b> VMware Zorin OS 실시간 시스템 모니터링
+            </div>
+          </div>
+          <div class="card" style="border-left:3px solid #22c55e;">
+            <div style="font-weight:700;color:#22c55e;margin-bottom:6px;">monitor_aianalysis</div>
+            <div style="font-size:0.78rem;color:var(--muted);line-height:1.7;">
+              <b>수집 시점:</b> 수동 요청 시 (AI 분석 버튼)<br>
+              <b>저장 필드:</b> metric(FK), severity, title, analysis, suggestion, created_at<br>
+              <b>용도:</b> Ollama AI가 생성한 서버 상태 분석 결과 보관
+            </div>
+          </div>
+          <div class="card" style="border-left:3px solid #f59e0b;">
+            <div style="font-weight:700;color:#f59e0b;margin-bottom:6px;">monitor_alerthistory</div>
+            <div style="font-size:0.78rem;color:var(--muted);line-height:1.7;">
+              <b>수집 시점:</b> 임계값 초과 시 (n8n 자동화 트리거)<br>
+              <b>저장 필드:</b> alert_type, threshold, actual_value, message, triggered_at<br>
+              <b>용도:</b> CPU &gt;80% / MEM &gt;85% / DISK &gt;90% 초과 알림 이력
+            </div>
+          </div>
+          <div class="card" style="border-left:3px solid #8b5cf6;">
+            <div style="font-weight:700;color:#8b5cf6;margin-bottom:6px;">windows_metrics_sql</div>
+            <div style="font-size:0.78rem;color:var(--muted);line-height:1.7;">
+              <b>수집 주기:</b> 10초 (Windows 에이전트 → Django API)<br>
+              <b>저장 필드:</b> hostname, cpu_usage/temp/power/clock, gpu_usage/temp/power/vram, ram_pct, recorded_at<br>
+              <b>용도:</b> Windows 하드웨어 메트릭 MySQL 미러 (MongoDB와 동기)
+            </div>
+          </div>
+        </div>
+
+        <!-- 최근 데이터 -->
+        <div class="card mb-20">
+          <div class="card-title" style="margin-bottom:10px;">최근 시스템 메트릭 (monitor_systemmetric)</div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr><th>시각</th><th>호스트</th><th>CPU %</th><th>MEM %</th><th>MEM 사용</th><th>DISK %</th><th>DISK 사용</th><th>NET 송신</th><th>NET 수신</th></tr></thead>
+              <tbody id="mysql-metrics-tbody">
+                {% for m in recent_metrics %}
+                <tr>
+                  <td style="font-size:0.75rem;white-space:nowrap;">{{ m.recorded_at|date:"H:i:s" }}</td>
+                  <td style="font-size:0.75rem;">{{ m.hostname }}</td>
+                  <td style="color:{% if m.cpu_usage > 80 %}var(--red){% elif m.cpu_usage > 60 %}var(--yellow){% else %}var(--green){% endif %}">{{ m.cpu_usage|floatformat:1 }}%</td>
+                  <td>{{ m.mem_percent|floatformat:1 }}%</td>
+                  <td style="font-size:0.75rem;color:var(--dim);">{{ m.mem_used_gb }}GB / {{ m.mem_total_gb }}GB</td>
+                  <td>{{ m.disk_percent|floatformat:1 }}%</td>
+                  <td style="font-size:0.75rem;color:var(--dim);">{{ m.disk_used_gb }}GB / {{ m.disk_total_gb }}GB</td>
+                  <td style="font-size:0.75rem;color:var(--dim);">{{ m.net_bytes_sent }}</td>
+                  <td style="font-size:0.75rem;color:var(--dim);">{{ m.net_bytes_recv }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="9" style="color:var(--dim);text-align:center;">데이터 없음</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:10px;">최근 AI 분석 (monitor_aianalysis)</div>
+            <div id="mysql-analysis-list">
+              {% for a in recent_analysis %}
+              <div style="padding:10px;background:var(--bg);border-radius:8px;border:1px solid var(--border);margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                  <span class="badge badge-{{ a.severity }}">{{ a.get_severity_display }}</span>
+                  <span style="font-size:0.72rem;color:var(--dim);">{{ a.created_at }}</span>
+                </div>
+                <div style="font-size:0.78rem;color:var(--muted);">{{ a.title }}</div>
+                <div style="font-size:0.75rem;color:var(--dim);margin-top:3px;">{{ a.analysis|truncatechars:120 }}</div>
+              </div>
+              {% empty %}
+              <p style="color:var(--dim);font-size:0.85rem;">분석 이력 없음</p>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title" style="margin-bottom:10px;">최근 알림 이력 (monitor_alerthistory)</div>
+            <table>
+              <thead><tr><th>시각</th><th>유형</th><th>임계</th><th>실제값</th></tr></thead>
+              <tbody>
+                {% for a in recent_alerts|slice:":10" %}
+                <tr>
+                  <td style="font-size:0.72rem;white-space:nowrap;">{{ a.triggered_at|date:"m/d H:i" }}</td>
+                  <td><span class="badge {% if 'cpu' in a.alert_type %}badge-warning{% elif 'mem' in a.alert_type %}badge-critical{% else %}badge-info{% endif %}" style="font-size:0.68rem;">{{ a.alert_type }}</span></td>
+                  <td style="font-size:0.75rem;">{{ a.threshold }}%</td>
+                  <td style="color:var(--red);font-weight:700;">{{ a.actual_value }}%</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="4" style="color:var(--dim);text-align:center;">알림 없음</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── MongoDB 상세 ── -->
+      <div id="dbsub-mongo" class="vsub">
+        <div class="section-header">🍃 MongoDB 7.0 — 컬렉션 구조 및 저장 데이터</div>
+
+        <!-- 컬렉션 설명 카드 -->
+        <div class="grid-2" style="margin-bottom:20px;">
+          <div class="card" style="border-left:3px solid #22c55e;">
+            <div style="font-weight:700;color:#22c55e;margin-bottom:6px;">metrics_raw</div>
+            <div style="font-size:0.78rem;color:var(--muted);line-height:1.7;">
+              <b>수집 주체:</b> Node-RED → Django /api/log/<br>
+              <b>수집 주기:</b> 5초<br>
+              <b>저장 필드:</b> timestamp, source, cpu_pct, mem_pct, disk_pct, net_sent, net_recv, load1/5/15, uptime_h, proc_count, kernel<br>
+              <b>용도:</b> VMware Zorin OS 원시 로그 (비정형 JSON 문서)
+            </div>
+          </div>
+          <div class="card" style="border-left:3px solid #8b5cf6;">
+            <div style="font-weight:700;color:#8b5cf6;margin-bottom:6px;">windows_metrics</div>
+            <div style="font-size:0.78rem;color:var(--muted);line-height:1.7;">
+              <b>수집 주체:</b> Windows 에이전트 → Django /api/windows/<br>
+              <b>수집 주기:</b> 10초<br>
+              <b>저장 필드:</b> hostname, os, cpu{usage/temp/power/clock/cores}, gpu{usage/temp/power/vram}, memory{percent/used/total}, timestamp<br>
+              <b>용도:</b> Windows 노트북 하드웨어 원시 로그
+            </div>
+          </div>
+        </div>
+
+        <!-- VMware 로그 -->
+        <div class="section-header" style="margin-bottom:12px;">
+          🐧 VMware Zorin OS — metrics_raw 컬렉션
+          <button class="btn btn-primary btn-sm" style="float:right;" onclick="loadVmwareLogs()">새로고침</button>
+        </div>
+        {% if not mongo_ok %}
+        <div class="card mb-20" style="border-left:3px solid var(--yellow);">
+          <div style="color:var(--yellow);font-weight:700;margin-bottom:6px;">⚠️ MongoDB 연결 대기 중</div>
+          <div style="color:var(--muted);font-size:0.83rem;">서비스가 시작되면 자동으로 로그가 기록됩니다.</div>
+        </div>
+        {% endif %}
+        <div class="card mb-20">
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr><th>시각</th><th>CPU %</th><th>메모리 %</th><th>디스크 %</th><th>NET 송신</th><th>NET 수신</th><th>출처</th></tr></thead>
+              <tbody id="vmlog-tbody">
+                <tr><td colspan="7" style="color:var(--dim);text-align:center;">로딩 중...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:10px;font-size:0.78rem;color:var(--dim);">
+            총 <span id="vmlog-total" style="color:var(--green);">0</span>개 문서 저장됨
+          </div>
+        </div>
+
+        <!-- Windows 로그 -->
+        <div class="section-header" style="margin-bottom:12px;">
+          🖥️ Windows 컴퓨터 — windows_metrics 컬렉션
+          <button class="btn btn-primary btn-sm" style="float:right;" onclick="loadWindowsLogs()">새로고침</button>
+        </div>
+        <div class="card">
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>시각</th><th>호스트</th>
+                  <th>CPU %</th><th>CPU 온도</th><th>CPU 전력</th><th>CPU 클럭</th>
+                  <th>GPU %</th><th>GPU 온도</th><th>GPU 전력</th><th>VRAM %</th>
+                  <th>RAM %</th><th>RAM 사용/전체</th>
+                </tr>
+              </thead>
+              <tbody id="winlog-tbody">
+                <tr><td colspan="12" style="color:var(--dim);text-align:center;">로딩 중...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:10px;font-size:0.78rem;color:var(--dim);">
+            총 <span id="winlog-total" style="color:var(--purple);">0</span>개 문서 저장됨
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SQLite 상세 ── -->
+      <div id="dbsub-sqlite" class="vsub">
+        <div class="section-header">
+          💾 SQLite 3 — 테이블 구조 및 저장 데이터
+          <button class="btn btn-primary btn-sm" style="float:right;" onclick="loadSqliteDetail()">새로고침</button>
+        </div>
+
+        <div class="card mb-20" style="border-left:3px solid var(--purple);">
+          <div style="font-weight:700;color:var(--purple);margin-bottom:6px;">monitor_chatmessage</div>
+          <div style="font-size:0.78rem;color:var(--muted);line-height:1.7;">
+            <b>저장 시점:</b> AI 채팅 탭에서 대화 시 자동 저장<br>
+            <b>저장 필드:</b> id, role (user/assistant), content (메시지 내용), created_at<br>
+            <b>용도:</b> Ollama AI 채팅 히스토리 — 대화 맥락 유지 및 이력 조회<br>
+            <b>위치:</b> /app/data/local.db (Django 컨테이너 내부 · 볼륨 마운트)
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="margin-bottom:10px;">전체 채팅 이력 (최근 100건)</div>
+          <div id="sqlite-chat-list" style="max-height:600px;overflow-y:auto;">
+            {% for msg in chat_history %}
+            <div style="display:flex;gap:10px;margin-bottom:10px;padding:10px;background:var(--bg);border-radius:8px;border:1px solid var(--border);">
+              <div>
+                <span class="badge badge-{{ msg.role }}" style="white-space:nowrap;">{% if msg.role == 'user' %}👤 사용자{% else %}🤖 AI{% endif %}</span>
+                <div style="font-size:0.68rem;color:var(--dim);margin-top:4px;text-align:center;">{{ msg.created_at|date:"H:i" }}</div>
+              </div>
+              <div style="flex:1;font-size:0.82rem;color:var(--text);line-height:1.6;word-break:break-all;">{{ msg.content }}</div>
+            </div>
+            {% empty %}
+            <div style="text-align:center;padding:40px;color:var(--dim);">채팅 이력 없음 — AI 채팅 탭에서 대화를 시작하세요</div>
+            {% endfor %}
+          </div>
+          <div id="sqlite-chat-ajax" style="margin-top:10px;"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ═══ TAB: 서비스 ════════════════════════════════════════════ -->
+    <div id="tab-services" class="tab-panel">
+      <div class="section-header">🔗 통합 서비스 구성도</div>
+      <div class="services-grid">
+        <a class="svc-card svc-link" data-port="8000" href="#" target="_blank">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">Django</span></div>
+          <div class="svc-desc">메인 AI 모니터링 대시보드 & REST API</div>
+          <div class="svc-port">포트 8000</div>
+          <div class="svc-tech">Python · Django 5 · MySQL · SQLite · MongoDB</div>
+        </a>
+        <a class="svc-card svc-link" data-port="3000" href="#" target="_blank">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">Grafana</span></div>
+          <div class="svc-desc">시계열 데이터 시각화 대시보드</div>
+          <div class="svc-port">포트 3000 · admin / admin123</div>
+          <div class="svc-tech">Grafana · MySQL DataSource · 자동 프로비저닝</div>
+        </a>
+        <a class="svc-card svc-link" data-port="1880" data-path="/ui" href="#" target="_blank">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">Node-RED UI</span></div>
+          <div class="svc-desc">실시간 게이지 대시보드 (Linux VM + Windows)</div>
+          <div class="svc-port">포트 1880/ui</div>
+          <div class="svc-tech">Node-RED · node-red-dashboard · 5초 갱신</div>
+        </a>
+        <a class="svc-card svc-link" data-port="1880" href="#" target="_blank">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">Node-RED Flow</span></div>
+          <div class="svc-desc">메트릭 수집 파이프라인 (MySQL + MongoDB + Dashboard)</div>
+          <div class="svc-port">포트 1880 (편집기)</div>
+          <div class="svc-tech">exec → parse → MySQL + HTTP→Django + 게이지</div>
+        </a>
+        <a class="svc-card svc-link" data-port="5678" href="#" target="_blank">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">n8n</span></div>
+          <div class="svc-desc">자동화 워크플로우 (임계값 초과 알림)</div>
+          <div class="svc-port">포트 5678 · admin / admin123</div>
+          <div class="svc-tech">n8n · MySQL 연동 · Schedule Trigger</div>
+        </a>
+        <a class="svc-card svc-link" data-port="8080" href="#" target="_blank">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">PHP Monitor</span></div>
+          <div class="svc-desc">LAMP 스택 상태 모니터링 페이지</div>
+          <div class="svc-port">포트 8080</div>
+          <div class="svc-tech">PHP 8.2 · PDO MySQL · 10초 갱신</div>
+        </a>
+        <div class="svc-card" style="cursor:default;">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">MySQL</span></div>
+          <div class="svc-desc">구조화 메트릭 · AI 분석 · 알림 이력 저장</div>
+          <div class="svc-port">포트 3306 (내부)</div>
+          <div class="svc-tech">MySQL 8.0 · Docker Volume 영속성</div>
+        </div>
+        <div class="svc-card" style="cursor:default;">
+          <div><span class="sdot {% if mongo_ok %}sdot-on{% else %}sdot-off{% endif %}"></span><span class="svc-name">MongoDB</span></div>
+          <div class="svc-desc">VMware 원시 로그 + Windows 하드웨어 로그</div>
+          <div class="svc-port">포트 27017 (내부)</div>
+          <div class="svc-tech">MongoDB 7.0 · 2개 컬렉션 · pymongo</div>
+        </div>
+        <div class="svc-card" style="cursor:default;">
+          <div><span class="sdot sdot-off sdot-ollama"></span><span class="svc-name">Ollama</span></div>
+          <div class="svc-desc">로컬 AI 언어 모델 (Windows 호스트)</div>
+          <div class="svc-port">{{ ollama_host }}</div>
+          <div class="svc-tech">모델: {{ ollama_model }} · 서버 분석 & 채팅</div>
+        </div>
+        <div class="svc-card" style="cursor:default;">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">SQLite</span></div>
+          <div class="svc-desc">AI 채팅 히스토리 로컬 저장 (Django 보조 DB)</div>
+          <div class="svc-port">로컬 파일 /app/data/local.db</div>
+          <div class="svc-tech">SQLite3 · Django ORM · DB Router</div>
+        </div>
+        <div class="svc-card" style="cursor:default;">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">Docker</span></div>
+          <div class="svc-desc">전체 서비스 컨테이너 오케스트레이션</div>
+          <div class="svc-port">Docker Compose</div>
+          <div class="svc-tech">8개 서비스 · Bridge Network · Volume 영속성</div>
+        </div>
+        <div class="svc-card" style="cursor:default;">
+          <div><span class="sdot sdot-on"></span><span class="svc-name">Zorin OS VM</span></div>
+          <div class="svc-desc">VMware 가상머신 · Ubuntu 기반 리눅스</div>
+          <div class="svc-port">IP: 192.168.0.37</div>
+          <div class="svc-tech">VMware · SSH · VSCode Remote</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:16px;">📐 데이터 흐름 아키텍처</div>
+        <div id="mermaid-container" style="background:#0f172a;border-radius:10px;padding:20px;overflow-x:auto;min-height:120px;display:flex;align-items:center;justify-content:center;">
+          <span style="color:var(--dim);font-size:0.85rem;">다이어그램 로딩 중...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB: Windows 노트북 ══════════════════════════════════ -->
+    <div id="tab-windows" class="tab-panel">
+
+      <div id="win-offline-msg" class="card" style="color:var(--yellow);text-align:center;padding:24px;">
+        ⚠️ Windows 에이전트 오프라인 — <code>windows_agent/run_agent.bat</code>을 노트북에서 <b>관리자 권한</b>으로 실행하세요.
+      </div>
+
+      <div id="win-online" style="display:none;">
+
+      <!-- 항상 표시: 상태 바 -->
+      <div class="card" style="padding:10px 16px;display:flex;gap:20px;flex-wrap:wrap;align-items:center;margin-bottom:0;">
+        <span style="font-size:0.9rem;font-weight:600;" id="win-hostname">-</span>
+        <span style="color:var(--dim);font-size:0.8rem;" id="win-os">-</span>
+        <span style="margin-left:auto;font-size:0.75rem;color:var(--dim);">최근 업데이트: <span id="win-ts">-</span></span>
+        <span id="win-lhm-badge" style="font-size:0.72rem;padding:2px 8px;border-radius:99px;background:var(--surface2);color:var(--dim);">LHM -</span>
+      </div>
+
+      <!-- 서브 탭 -->
+      <div class="sub-nav" style="margin:14px 0 0;">
+        <button class="sub-nav-btn active" onclick="switchSub('w','overview',this)">📊 개요</button>
+        <button class="sub-nav-btn" onclick="switchSub('w','cpu',this)">⚙️ CPU</button>
+        <button class="sub-nav-btn" onclick="switchSub('w','gpu',this)">🎮 GPU</button>
+        <button class="sub-nav-btn" onclick="switchSub('w','ram',this)">🧠 RAM</button>
+        <button class="sub-nav-btn" onclick="switchSub('w','disk',this)">💿 디스크</button>
+        <button class="sub-nav-btn" onclick="switchSub('w','net',this)">🌐 네트워크</button>
+        <button class="sub-nav-btn" onclick="switchSub('w','logs',this);loadWinLogs()">📜 로그</button>
+      </div>
+
+      <!-- ── 개요: 실시간 시계열 미니 차트 ── -->
+      <div id="wsub-overview" class="vsub active">
+        <div style="margin-top:16px;">
+          <div class="win-chart-hdr">
+            📈 실시간 시계열 — 최근 60포인트
+            <span class="win-live-badge"><span class="live-dot" style="width:6px;height:6px;"></span>5초 갱신</span>
+          </div>
+          <div class="wcg">
+            <div class="wcc" style="--cc:#38bdf8">
+              <div class="wct">CPU 사용률</div>
+              <div class="wcv" id="wv-cpu-usage">-</div>
+              <canvas id="wc-cpu-usage" height="70"></canvas>
+            </div>
+            <div class="wcc" style="--cc:#f97316">
+              <div class="wct">CPU 온도</div>
+              <div class="wcv" id="wv-cpu-temp">-</div>
+              <canvas id="wc-cpu-temp" height="70"></canvas>
+            </div>
+            <div class="wcc" style="--cc:#f59e0b">
+              <div class="wct">CPU 전력</div>
+              <div class="wcv" id="wv-cpu-power">-</div>
+              <canvas id="wc-cpu-power" height="70"></canvas>
+            </div>
+            <div class="wcc" style="--cc:#22d3ee">
+              <div class="wct">CPU 클럭</div>
+              <div class="wcv" id="wv-cpu-clock">-</div>
+              <canvas id="wc-cpu-clock" height="70"></canvas>
+            </div>
+          </div>
+          <div class="wcg" style="margin-top:10px">
+            <div class="wcc" style="--cc:#a78bfa">
+              <div class="wct">GPU 사용률</div>
+              <div class="wcv" id="wv-gpu-usage">-</div>
+              <canvas id="wc-gpu-usage" height="70"></canvas>
+            </div>
+            <div class="wcc" style="--cc:#ef4444">
+              <div class="wct">GPU 온도</div>
+              <div class="wcv" id="wv-gpu-temp">-</div>
+              <canvas id="wc-gpu-temp" height="70"></canvas>
+            </div>
+            <div class="wcc" style="--cc:#ec4899">
+              <div class="wct">GPU 전력</div>
+              <div class="wcv" id="wv-gpu-power">-</div>
+              <canvas id="wc-gpu-power" height="70"></canvas>
+            </div>
+            <div class="wcc" style="--cc:#22c55e">
+              <div class="wct">RAM 사용률</div>
+              <div class="wcv" id="wv-ram">-</div>
+              <canvas id="wc-ram" height="70"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── CPU ── -->
+      <div id="wsub-cpu" class="vsub">
+        <div class="section-header" style="margin-top:16px;">⚙️ CPU — 실시간 상세 정보</div>
+        <div class="card mb-20">
+          <div id="win-cpu-model" style="font-size:0.8rem;color:var(--muted);margin-bottom:14px;"></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">사용률</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-cpu-pct">-</div>
+              <div class="pbar" style="margin-top:4px;"><div class="pfill" id="win-bar-cpu" style="width:0%"></div></div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:3px;" id="win-cpu-cores">-</div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">패키지 온도</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-cpu-temp">-</div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:6px;" id="win-cpu-core-temps"></div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">유효 클럭</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-cpu-clk">-</div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:6px;" id="win-cpu-clk-base"></div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">패키지 전력</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-cpu-pwr">-</div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:6px;" id="win-cpu-pwr-cores"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── GPU ── -->
+      <div id="wsub-gpu" class="vsub">
+        <div class="section-header" style="margin-top:16px;">🎮 GPU — 실시간 상세 정보</div>
+        <div class="card mb-20" id="win-gpu-card">
+          <div id="win-gpu-name" style="font-size:0.8rem;color:var(--muted);margin-bottom:14px;"></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">GPU 사용률</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-gpu-pct">-</div>
+              <div class="pbar" style="margin-top:4px;"><div class="pfill" id="win-bar-gpu" style="width:0%"></div></div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">VRAM</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-gpu-vram">-</div>
+              <div class="pbar" style="margin-top:4px;"><div class="pfill" id="win-bar-vram" style="width:0%"></div></div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:3px;" id="win-gpu-vram-detail"></div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">GPU 온도</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-gpu-temp">-</div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:6px;" id="win-gpu-fan"></div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">코어 클럭</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-gpu-clk">-</div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:3px;" id="win-gpu-memclk">-</div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">GPU 전력</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-gpu-pwr">-</div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:3px;" id="win-gpu-pwrlim">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── RAM ── -->
+      <div id="wsub-ram" class="vsub">
+        <div class="section-header" style="margin-top:16px;">🧠 RAM — 실시간 상세 정보</div>
+        <div class="card mb-20">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">사용중 / 전체</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-mem-used">-</div>
+              <div class="pbar" style="margin-top:4px;"><div class="pfill" id="win-bar-mem" style="width:0%"></div></div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:3px;" id="win-mem-total"></div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">메모리 클럭</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-ram-clk">-</div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">스왑</div>
+              <div style="font-size:1.6rem;font-weight:700;" id="win-swap-used">-</div>
+              <div style="font-size:0.7rem;color:var(--dim);margin-top:3px;" id="win-swap-total"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 디스크 ── -->
+      <div id="wsub-disk" class="vsub">
+        <div class="section-header" style="margin-top:16px;">💿 디스크 — 드라이브 현황</div>
+        <div class="card mb-20">
+          <table>
+            <thead><tr><th>드라이브</th><th>파일시스템</th><th>전체</th><th>사용</th><th>여유</th><th>사용률</th><th></th></tr></thead>
+            <tbody id="win-disk-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── 네트워크 ── -->
+      <div id="wsub-net" class="vsub">
+        <div class="section-header" style="margin-top:16px;">🌐 네트워크 — 인터페이스 I/O (누적)</div>
+        <div class="card">
+          <table>
+            <thead><tr><th>인터페이스</th><th>송신</th><th>수신</th><th>오류(in/out)</th></tr></thead>
+            <tbody id="win-net-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── 로그 ── -->
+      <div id="wsub-logs" class="vsub">
+        <div class="section-header" style="margin-top:16px;">
+          📜 Windows 원시 로그 (MongoDB)
+          <button class="btn btn-primary btn-sm" style="float:right;" onclick="loadWinLogs()">새로고침</button>
+        </div>
+        <div class="sub-nav" style="margin-bottom:14px;">
+          <button class="sub-nav-btn active" onclick="filterWinLogs('all',this)">📋 전체</button>
+          <button class="sub-nav-btn" onclick="filterWinLogs('cpu',this)">⚙️ CPU 로그</button>
+          <button class="sub-nav-btn" onclick="filterWinLogs('gpu',this)">🎮 GPU 로그</button>
+          <button class="sub-nav-btn" onclick="filterWinLogs('ram',this)">🧠 RAM 로그</button>
+        </div>
+        <div class="card">
+          <div style="overflow-x:auto;">
+            <table>
+              <thead id="wlog-thead"><tr><th>시각</th><th>호스트</th><th>CPU %</th><th>CPU °C</th><th>GPU %</th><th>GPU °C</th><th>VRAM %</th><th>RAM %</th></tr></thead>
+              <tbody id="wlog-tbody">
+                <tr><td colspan="8" style="color:var(--dim);text-align:center;">탭 클릭 시 로드됩니다</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:10px;font-size:0.78rem;color:var(--dim);">
+            총 <span id="wlog-total" style="color:var(--purple);">0</span>개 문서
+          </div>
+        </div>
+      </div>
+
+      </div><!-- /#win-online -->
+    </div>
+
+  </div><!-- /.main -->
+</div><!-- /.layout -->
+
+<script>
+/* ── 시계 ─────────────────────────────────── */
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleString('ko-KR');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+/* ── 메인 탭 전환 ──────────────────────────── */
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (el) el.classList.add('active');
+  if (name === 'alerts')  { loadAlertStats(); loadBotLogs(); loadThresholds(); }
+  if (name === 'alldb')   loadAllDb();
+  if (name === 'windows') { initWindowsCharts(); refreshWindows(); refreshWindowsCharts(); }
+  if (name === 'ai')      scrollChatBottom();
+}
+
+/* ── 서브 탭 전환 ──────────────────────────── */
+function switchSub(prefix, subname, el) {
+  const cls = 'vsub';
+  let scope = el.parentElement;
+  while (scope && !scope.classList.contains('tab-panel') && !scope.classList.contains('vsub')) {
+    scope = scope.parentElement;
+  }
+  if (scope) {
+    scope.querySelectorAll('.' + cls).forEach(p => p.classList.remove('active'));
+  }
+  const target = document.getElementById(prefix + 'sub-' + subname);
+  if (target) target.classList.add('active');
+  el.parentElement.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+/* ── 메트릭 실시간 갱신 ───────────────────── */
+const miniLabels = [], miniData = [];
+
+async function refreshMetrics() {
+  try {
+    const r = await fetch('/api/metrics/');
+    const d = await r.json();
+    if (!d.metrics || !d.metrics.length) return;
+
+    const latest = d.metrics[0];
+    const cpu  = parseFloat(latest.cpu_usage).toFixed(1);
+    const mem  = parseFloat(latest.mem_percent).toFixed(1);
+    const disk = parseFloat(latest.disk_percent).toFixed(1);
+
+    const cpuEl = document.getElementById('val-cpu');
+    if (cpuEl) {
+      cpuEl.textContent = cpu + '%';
+      cpuEl.style.color = cpu > 80 ? 'var(--red)' : cpu > 60 ? 'var(--yellow)' : 'var(--green)';
+      setBar('bar-cpu', cpu);
+    }
+    const memEl = document.getElementById('val-mem');
+    if (memEl) {
+      memEl.textContent = mem + '%';
+      memEl.style.color = mem > 85 ? 'var(--red)' : mem > 70 ? 'var(--yellow)' : 'var(--green)';
+      setBar('bar-mem', mem);
+    }
+    const diskEl = document.getElementById('val-disk');
+    if (diskEl) {
+      diskEl.textContent = disk + '%';
+      diskEl.style.color = disk > 90 ? 'var(--red)' : disk > 75 ? 'var(--yellow)' : 'var(--green)';
+      setBar('bar-disk', disk);
+    }
+    const timeEl = document.getElementById('val-time');
+    if (timeEl) timeEl.textContent = latest.recorded_at;
+
+    const cntEl = document.getElementById('stat-mysql');
+    if (cntEl) cntEl.textContent = d.metrics.length >= 100 ? '100+' : d.metrics.length;
+
+    updateMetricsTable(d.metrics.slice(0, 20));
+    updateMysqlCount(d.metrics.length);
+  } catch (e) {}
+}
+
+function setBar(id, pct) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.width = pct + '%';
+  el.className = 'pfill ' + (pct > 80 ? 'fill-crit' : pct > 60 ? 'fill-warn' : 'fill-ok');
+}
+
+function updateMysqlCount(n) {
+  const el = document.getElementById('mysql-count');
+  if (el) el.textContent = n >= 100 ? '100+' : n;
+}
+
+function updateMetricsTable(metrics) {
+  const tb = document.getElementById('metrics-tbody');
+  if (!tb) return;
+  tb.innerHTML = metrics.map(m => {
+    const cpu   = parseFloat(m.cpu_usage).toFixed(1);
+    const color = cpu > 80 ? 'var(--red)' : cpu > 60 ? 'var(--yellow)' : 'var(--green)';
+    const t     = m.recorded_at.split(' ')[1] || m.recorded_at;
+    return `<tr>
+      <td>${t}</td>
+      <td style="color:${color}">${cpu}%</td>
+      <td>${parseFloat(m.mem_percent).toFixed(1)}%</td>
+      <td>${parseFloat(m.disk_percent).toFixed(1)}%</td>
+    </tr>`;
+  }).join('');
+}
+
+
+/* ── 실시간 라인 차트 ─────────────────────── */
+let cpuChart = null, memChart = null, diskChart = null;
+let chartsInit = false;
+
+function makeChart(id, label, color) {
+  const ctx = document.getElementById(id);
+  if (!ctx) return null;
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label, data: [], borderColor: color, backgroundColor: color + '22', borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3 }] },
+    options: { responsive: true, animation: false, plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: '#1e293b' } },
+        y: { min: 0, max: 100, ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } }
+      }
+    }
+  });
+}
+
+function initCharts() {
+  if (chartsInit) return;
+  chartsInit = true;
+  cpuChart  = makeChart('chart-cpu',  'CPU %',  '#38bdf8');
+  memChart  = makeChart('chart-mem',  'MEM %',  '#22c55e');
+  diskChart = makeChart('chart-disk', 'DISK %', '#f59e0b');
+}
+
+async function refreshCharts() {
+  if (!chartsInit) return;
+  try {
+    const r = await fetch('/api/metrics/?limit=60');
+    const d = await r.json();
+    if (!d.metrics) return;
+    const reversed = d.metrics.slice(0, 60).reverse();
+    const labels   = reversed.map(m => (m.recorded_at || '').slice(11, 19));
+    const cpuData  = reversed.map(m => parseFloat(m.cpu_usage));
+    const memData  = reversed.map(m => parseFloat(m.mem_percent));
+    const diskData = reversed.map(m => parseFloat(m.disk_percent));
+    function updateC(chart, lbl, dat) { if (!chart) return; chart.data.labels = lbl; chart.data.datasets[0].data = dat; chart.update('none'); }
+    updateC(cpuChart, labels, cpuData);
+    updateC(memChart, labels, memData);
+    updateC(diskChart, labels, diskData);
+  } catch (e) {}
+}
+
+/* ── AI 분석 ──────────────────────────────── */
+/* ── AI 시스템 선택 ──────────────────────────── */
+let aiSystem = 'vmware';
+function setAiSystem(s, btn) {
+  aiSystem = s;
+  document.querySelectorAll('#ai-sys-vmware,#ai-sys-windows').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const hint = document.getElementById('ai-sys-hint');
+  if (hint) hint.textContent = '현재 메트릭 컨텍스트: ' + (s === 'windows' ? 'Windows 컴퓨터' : 'VMware Zorin OS');
+}
+
+async function runAnalysis() {
+  const el = document.getElementById('ai-result');
+  el.style.display = 'block';
+  el.className = 'thinking';
+  const label = aiSystem === 'windows' ? 'Windows 컴퓨터' : 'VMware Zorin OS';
+  el.textContent = `🤖 ${label} 분석 중... (최대 60초 소요)`;
+  const url = aiSystem === 'windows' ? '/api/analyze/windows/' : '/api/analyze/';
+  try {
+    const res  = await fetch(url, { method: 'POST' });
+    const data = await res.json();
+    el.className = '';
+    if (data.error) { el.textContent = '❌ 오류: ' + data.error; el.style.borderColor = 'var(--red)'; }
+    else { el.style.borderColor = 'var(--border)'; el.textContent = `[${data.severity.toUpperCase()}] ${data.title}\n\n${data.analysis}`; }
+  } catch (e) { el.className = ''; el.textContent = '❌ 요청 실패: ' + e.message; }
+}
+
+/* ── AI 채팅 ──────────────────────────────── */
+async function sendChat() {
+  const input   = document.getElementById('chat-input');
+  const btn     = document.getElementById('chat-send-btn');
+  const message = input.value.trim();
+  if (!message) return;
+  appendMsg('user', message);
+  input.value = '';
+  btn.disabled = true;
+  btn.textContent = '...';
+  const thinkEl = appendMsg('assistant', '🤔 생각하는 중...', true);
+  try {
+    const res  = await fetch('/api/chat/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, system: aiSystem }) });
+    const data = await res.json();
+    thinkEl.remove();
+    if (data.error) appendMsg('assistant', '❌ ' + data.error);
+    else {
+      appendMsg('assistant', data.response);
+      const sc = document.getElementById('sqlite-count');
+      if (sc) sc.textContent = parseInt(sc.textContent || '0') + 2;
+    }
+  } catch (e) { thinkEl.remove(); appendMsg('assistant', '❌ 연결 오류: ' + e.message); }
+  btn.disabled = false;
+  btn.textContent = '전송';
+}
+
+function appendMsg(role, content, isTemp = false) {
+  const msgs = document.getElementById('chat-messages');
+  const div  = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  const now = new Date().toLocaleTimeString('ko-KR');
+  div.innerHTML = `<div class="chat-avatar">${role === 'user' ? '👤' : '🤖'}</div>
+    <div><div class="chat-bubble">${escHtml(content)}</div><div class="chat-time">${now}</div></div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function sendQuick(msg) { document.getElementById('chat-input').value = msg; sendChat(); }
+
+async function clearChat() {
+  if (!confirm('채팅 히스토리를 초기화하시겠습니까?')) return;
+  await fetch('/api/chat/clear/', { method: 'DELETE' });
+  document.getElementById('chat-messages').innerHTML = '<div style="text-align:center;padding:40px;color:var(--dim);">채팅 기록이 초기화되었습니다.</div>';
+  const sc = document.getElementById('sqlite-count');
+  if (sc) sc.textContent = '0';
+}
+
+function scrollChatBottom() {
+  const msgs = document.getElementById('chat-messages');
+  if (msgs) msgs.scrollTop = msgs.scrollHeight;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('chat-input');
+  if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+  scrollChatBottom();
+  loadThresholds();
+  checkOllamaStatus();
+  setInterval(checkOllamaStatus, 30000);
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#1e293b',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#334155',
+      lineColor: '#64748b',
+      secondaryColor: '#263246',
+      clusterBkg: '#1a2744',
+      edgeLabelBackground: '#1e293b',
+      fontFamily: 'Segoe UI, system-ui, sans-serif',
+      fontSize: '13px',
+    },
+    flowchart: { curve: 'basis', padding: 20 },
+  });
+  renderArchDiagram();
+});
+
+async function renderArchDiagram() {
+  const el = document.getElementById('mermaid-container');
+  if (!el) return;
+  const diagram = [
+    'flowchart TB',
+    '    subgraph SRC["데이터 소스"]',
+    '        VM["VMware Zorin OS\\ncollect_metrics.sh\\n192.168.0.37"]',
+    '        WIN["Windows 노트북\\nLHM DLL + psutil + pynvml"]',
+    '    end',
+    '    subgraph PIPE["수집 파이프라인"]',
+    '        NR["Node-RED\\n5초 주기 / 포트 1880"]',
+    '        WA["Windows Agent\\nwindows_agent.py / 10초"]',
+    '        N8N["n8n\\n임계값 모니터링 / 1분"]',
+    '    end',
+    '    subgraph AI_LAYER["AI 레이어"]',
+    '        OLLAMA["Ollama LLM\\nWindows 호스트\\ngemma3 모델"]',
+    '    end',
+    '    subgraph STORE["데이터 저장소"]',
+    '        MYSQL[("MySQL 8.0\\nport 3306\\nsystem_metric / alert_history")]',
+    '        MONGO[("MongoDB 7.0\\nport 27017\\nmetrics_raw / windows_metrics")]',
+    '        SQLITE[("SQLite 3\\nlocal.db / chat_message")]',
+    '    end',
+    '    subgraph DASH["대시보드 및 시각화"]',
+    '        DJANGO["Django\\nAI Infra Monitor / 포트 8000"]',
+    '        NRUI["Node-RED UI\\n실시간 게이지 / 포트 1880"]',
+    '        GRAFANA["Grafana\\n시계열 차트 / 포트 3000"]',
+    '        PHP["PHP Monitor\\n포트 8080"]',
+    '    end',
+    '    VM --> NR',
+    '    WIN --> WA',
+    '    NR -->|system_metric| MYSQL',
+    '    NR -->|metrics_raw| MONGO',
+    '    NR -->|POST /api/log/| DJANGO',
+    '    NR --> NRUI',
+    '    WA -->|POST /api/windows/| DJANGO',
+    '    DJANGO -->|windows_metrics| MONGO',
+    '    DJANGO -->|windows_metrics_sql| MYSQL',
+    '    MYSQL -->|임계값 조회| N8N',
+    '    N8N -->|alert_history| MYSQL',
+    '    MYSQL --> DJANGO',
+    '    MONGO --> DJANGO',
+    '    SQLITE --> DJANGO',
+    '    MYSQL --> GRAFANA',
+    '    MYSQL --> PHP',
+    '    DJANGO -->|AI 분석 요청| OLLAMA',
+    '    OLLAMA -->|분석 결과| DJANGO',
+    '    DJANGO -->|채팅 저장| SQLITE',
+    '    style SRC fill:#1a2744,stroke:#3b82f6,stroke-width:2px,color:#93c5fd',
+    '    style PIPE fill:#1a2a1a,stroke:#22c55e,stroke-width:2px,color:#86efac',
+    '    style AI_LAYER fill:#2a1a2a,stroke:#8b5cf6,stroke-width:2px,color:#c4b5fd',
+    '    style STORE fill:#1a1a2a,stroke:#f59e0b,stroke-width:2px,color:#fde68a',
+    '    style DASH fill:#1a2020,stroke:#06b6d4,stroke-width:2px,color:#67e8f9',
+  ].join('\n');
+  try {
+    const { svg } = await mermaid.render('arch-diagram-svg', diagram);
+    el.innerHTML = svg;
+    el.style.justifyContent = 'unset';
+  } catch (e) {
+    el.innerHTML = '<p style="color:var(--red);padding:10px;">다이어그램 렌더링 오류: ' + e.message + '</p>';
+  }
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+/* ── 임계값 설정 로드/저장 ────────────────── */
+async function loadThresholds() {
+  try {
+    const r = await fetch('/api/thresholds/');
+    const d = await r.json();
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    set('th-vm-cpu',      d.vm_cpu_pct);
+    set('th-vm-ram',      d.vm_ram_pct);
+    set('th-vm-disk',     d.vm_disk_pct);
+    set('th-win-cpu-pct', d.win_cpu_pct);
+    set('th-win-cpu-temp',d.win_cpu_temp_c);
+    set('th-win-gpu-pct', d.win_gpu_pct);
+    set('th-win-gpu-temp',d.win_gpu_temp_c);
+    set('th-win-vram',    d.win_vram_pct);
+    set('th-win-ram',     d.win_ram_pct);
+    set('th-cooldown',    d.cooldown_min);
+    updateThresholdBadges(d);
+  } catch(e) {}
+}
+
+function updateThresholdBadges(d) {
+  const s = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+  s('alert-vm-cpu-th',    `임계 ${d.vm_cpu_pct}%`);
+  s('alert-vm-ram-th',    `임계 ${d.vm_ram_pct}%`);
+  s('alert-vm-disk-th',   `임계 ${d.vm_disk_pct}%`);
+  s('alert-win-cpu-th',   `임계 ${d.win_cpu_pct}%`);
+  s('alert-win-ctemp-th', `임계 ${d.win_cpu_temp_c}°C`);
+  s('alert-win-gpu-th',   `임계 ${d.win_gpu_pct}%`);
+  s('alert-win-gtemp-th', `임계 ${d.win_gpu_temp_c}°C`);
+  s('alert-win-vram-th',  `임계 ${d.win_vram_pct}%`);
+  s('alert-win-ram-th',   `임계 ${d.win_ram_pct}%`);
+}
+
+async function saveThresholds() {
+  const g = id => parseFloat(document.getElementById(id)?.value || 0);
+  const payload = {
+    vm_cpu_pct:    g('th-vm-cpu'),
+    vm_ram_pct:    g('th-vm-ram'),
+    vm_disk_pct:   g('th-vm-disk'),
+    win_cpu_pct:   g('th-win-cpu-pct'),
+    win_cpu_temp_c:g('th-win-cpu-temp'),
+    win_gpu_pct:   g('th-win-gpu-pct'),
+    win_gpu_temp_c:g('th-win-gpu-temp'),
+    win_vram_pct:  g('th-win-vram'),
+    win_ram_pct:   g('th-win-ram'),
+    cooldown_min:  parseInt(document.getElementById('th-cooldown')?.value || 5),
+  };
+  const st = document.getElementById('threshold-status');
+  try {
+    const r = await fetch('/api/thresholds/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      if (st) { st.textContent = '✅ 저장됨'; setTimeout(() => { st.textContent = ''; }, 3000); }
+      updateThresholdBadges(payload);
+    }
+  } catch(e) {
+    if (st) st.textContent = '❌ 저장 실패';
+  }
+}
+
+/* ── 알림 통계 ────────────────────────────── */
+async function loadAlertStats() {
+  const s = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const col = (v, th) => v == null ? 'var(--dim)' : parseFloat(v) >= parseFloat(th) ? 'var(--red)' : parseFloat(v) >= parseFloat(th)*0.85 ? 'var(--yellow)' : 'var(--green)';
+  const typeLabel = {
+    vm_cpu:'VM CPU', vm_ram:'VM RAM', vm_disk:'VM 디스크',
+    win_cpu_pct:'CPU %', win_cpu_temp:'CPU 온도',
+    win_gpu_pct:'GPU %', win_gpu_temp:'GPU 온도',
+    win_vram:'VRAM', win_ram:'RAM',
+  };
+  const typeSys = t => (t.startsWith('vm_') || t === 'cpu_high' || t === 'disk_high') ? '🐧 VMware' : '🖥️ Windows';
+  const typeColor = t => {
+    if (t.includes('temp')) return 'badge-critical';
+    if (t.includes('cpu')) return 'badge-warning';
+    return 'badge-info';
+  };
+  const unit = t => t.includes('temp') ? '°C' : '%';
+
+  // 카드 집계: 전체 DB에서 타입별 카운트
+  try {
+    const rs = await fetch('/api/alerts/stats/');
+    const ds = await rs.json();
+    const c = ds.counts || {};
+    s('alert-vm-cpu-cnt',   c['vm_cpu']     || 0);
+    s('alert-vm-ram-cnt',   c['vm_ram']     || 0);
+    s('alert-vm-disk-cnt',  c['vm_disk']    || 0);
+    s('alert-win-cpu-cnt',  c['win_cpu_pct']|| 0);
+    s('alert-win-ctemp-cnt',c['win_cpu_temp']||0);
+    s('alert-win-gpu-cnt',  c['win_gpu_pct']|| 0);
+    s('alert-win-gtemp-cnt',c['win_gpu_temp']||0);
+    s('alert-win-vram-cnt', c['win_vram']   || 0);
+    s('alert-win-ram-cnt',  c['win_ram']    || 0);
+  } catch(e) {}
+
+  // 임계값 + 실시간 메트릭 (병렬 fetch)
+  try {
+    const [rth, rm, rw] = await Promise.allSettled([
+      fetch('/api/thresholds/').then(r => r.json()),
+      fetch('/api/metrics/').then(r => r.json()),
+      fetch('/api/windows/latest/').then(r => r.ok ? r.json() : null),
+    ]);
+    const th = rth.status === 'fulfilled' ? rth.value : {};
+    const setLive = (id, v, thv) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const isTemp = id.includes('temp');
+      el.textContent = v != null ? `${parseFloat(v).toFixed(1)}${isTemp ? '°C' : '%'}` : '—';
+      el.style.color = col(v, thv);
+    };
+    // VMware (최신 1건)
+    if (rm.status === 'fulfilled') {
+      const ms = rm.value.metrics || [];
+      const m = ms[0] || {};
+      setLive('live-vm-cpu',  m.cpu_usage,    th.vm_cpu_pct);
+      setLive('live-vm-ram',  m.mem_percent,  th.vm_ram_pct);
+      setLive('live-vm-disk', m.disk_percent, th.vm_disk_pct);
+    }
+    // Windows
+    if (rw.status === 'fulfilled' && rw.value) {
+      const dw = rw.value;
+      const cpu = dw.cpu || {}; const gpu = dw.gpu || {}; const mem = dw.memory || {};
+      setLive('live-win-cpu',   cpu.usage_pct,     th.win_cpu_pct);
+      setLive('live-win-ctemp', cpu.temp_package_c, th.win_cpu_temp_c);
+      setLive('live-win-gpu',   gpu.usage_pct,      th.win_gpu_pct);
+      setLive('live-win-gtemp', gpu.temp_c,         th.win_gpu_temp_c);
+      setLive('live-win-vram',  gpu.mem_pct,        th.win_vram_pct);
+      setLive('live-win-ram',   mem.percent,        th.win_ram_pct);
+    }
+  } catch(e) {}
+
+  // 로그 테이블: 최신 200건 (n8n_check 제외)
+  try {
+    const r = await fetch('/api/alerts/');
+    const d = await r.json();
+    const tb = document.getElementById('alerts-tbody');
+    if (!tb) return;
+    if (!d.alerts || !d.alerts.length) {
+      tb.innerHTML = '<tr><td colspan="6" style="color:var(--dim);text-align:center;padding:20px;">알림 이력 없음 — 모든 지표 정상 ✅</td></tr>';
+    } else {
+      tb.innerHTML = d.alerts.map(a => `<tr>
+        <td style="font-size:0.78rem;white-space:nowrap;">${a.triggered_at}</td>
+        <td>${typeSys(a.alert_type)}</td>
+        <td><span class="badge ${typeColor(a.alert_type)}" style="font-size:0.7rem;">${typeLabel[a.alert_type]||a.alert_type}</span></td>
+        <td>${parseFloat(a.threshold).toFixed(1)}${unit(a.alert_type)}</td>
+        <td style="color:var(--red);font-weight:700;">${parseFloat(a.actual_value).toFixed(1)}${unit(a.alert_type)}</td>
+        <td style="font-size:0.78rem;color:var(--muted);max-width:300px;">${escHtml(a.message||'')}</td>
+      </tr>`).join('');
+    }
+  } catch(e) {}
+}
+
+/* ── 텔레그램 봇 로그 ─────────────────────── */
+async function loadBotLogs() {
+  const el = document.getElementById('bot-log-list');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--dim);font-size:0.82rem;text-align:center;padding:16px;">로딩 중...</div>';
+  try {
+    const r = await fetch('/api/bot/logs/?limit=50');
+    const d = await r.json();
+    if (!d.logs || !d.logs.length) {
+      el.innerHTML = '<div style="color:var(--dim);font-size:0.82rem;text-align:center;padding:16px;">텔레그램 알림 발송 이력 없음</div>';
+      return;
+    }
+    const typeLabel = {
+      vm_cpu:'VM CPU', vm_ram:'VM RAM', vm_disk:'VM 디스크',
+      win_cpu_pct:'CPU %', win_cpu_temp:'CPU 온도',
+      win_gpu_pct:'GPU %', win_gpu_temp:'GPU 온도',
+      win_vram:'VRAM', win_ram:'RAM',
+    };
+    el.innerHTML = d.logs.map(l => {
+      const icon = l.message.includes('🔴') ? '🔴' : l.message.includes('🟡') ? '🟡' : '📩';
+      const label = typeLabel[l.alert_type] || l.alert_type || '수동';
+      return `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:1rem;flex-shrink:0;">${icon}</span>
+        <div style="flex:1;">
+          <div style="font-size:0.78rem;color:var(--text);white-space:pre-wrap;">${escHtml(l.message)}</div>
+          <div style="font-size:0.68rem;color:var(--dim);margin-top:3px;">${l.created_at} · <span style="color:var(--blue);">${label}</span></div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);font-size:0.82rem;padding:10px;">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+/* ── Ollama 상태 확인 ─────────────────────── */
+async function checkOllamaStatus() {
+  const dots = document.querySelectorAll('.sdot-ollama');
+  try {
+    const r = await fetch('{{ ollama_host }}/api/tags', { signal: AbortSignal.timeout(3000) });
+    const ok = r.ok;
+    dots.forEach(d => { d.className = ok ? 'sdot sdot-on sdot-ollama' : 'sdot sdot-off sdot-ollama'; });
+  } catch {
+    dots.forEach(d => { d.className = 'sdot sdot-off sdot-ollama'; });
+  }
+}
+
+/* ── MongoDB VMware 로그 ──────────────────── */
+async function loadVmwareLogs() {
+  const tb    = document.getElementById('vmlog-tbody');
+  const total = document.getElementById('vmlog-total');
+  if (!tb) return;
+  tb.innerHTML = '<tr><td colspan="7" style="color:var(--dim);text-align:center;">로딩 중...</td></tr>';
+  try {
+    const r = await fetch('/api/logs/?limit=50');
+    const d = await r.json();
+    if (total) total.textContent = d.total || 0;
+    const mc = document.getElementById('mongo-count');
+    if (mc) mc.textContent = d.total || 0;
+    if (!d.logs || !d.logs.length) {
+      tb.innerHTML = '<tr><td colspan="7" style="color:var(--dim);text-align:center;">VMware 로그 없음 (Node-RED 연결 대기)</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.logs.map(l => `<tr>
+      <td style="font-size:0.78rem;">${l.timestamp || '-'}</td>
+      <td style="color:${parseFloat(l.cpu_usage)>80?'var(--red)':parseFloat(l.cpu_usage)>60?'var(--yellow)':'var(--green)'}">${parseFloat(l.cpu_usage||0).toFixed(1)}%</td>
+      <td>${parseFloat(l.mem_percent||0).toFixed(1)}%</td>
+      <td>${parseFloat(l.disk_percent||0).toFixed(1)}%</td>
+      <td>${Math.round((l.net_bytes_sent||0)/1024)} KB</td>
+      <td>${Math.round((l.net_bytes_recv||0)/1024)} KB</td>
+      <td><span style="font-size:0.72rem;color:var(--purple);">${l.source||'?'}</span></td>
+    </tr>`).join('');
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="7" style="color:var(--red);">오류: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+/* ── MongoDB Windows 로그 ─────────────────── */
+async function loadWindowsLogs() {
+  const tb    = document.getElementById('winlog-tbody');
+  const total = document.getElementById('winlog-total');
+  if (!tb) return;
+  tb.innerHTML = '<tr><td colspan="12" style="color:var(--dim);text-align:center;">로딩 중...</td></tr>';
+  try {
+    const r = await fetch('/api/windows/logs/?limit=50');
+    const d = await r.json();
+    if (total) total.textContent = d.total || 0;
+    if (!d.logs || !d.logs.length) {
+      tb.innerHTML = '<tr><td colspan="12" style="color:var(--dim);text-align:center;">Windows 로그 없음 (에이전트 오프라인)</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.logs.map(l => {
+      const c = l.cpu    || {};
+      const g = l.gpu    || {};
+      const m = l.memory || {};
+      const ts = (l.timestamp || l._received_at || '-').replace('T',' ').replace('Z','').slice(0,19);
+      const na = (v, u='') => v != null ? parseFloat(v).toFixed(1)+u : '-';
+      const cpuC = c.usage_pct > 80 ? 'var(--red)' : c.usage_pct > 60 ? 'var(--yellow)' : 'var(--green)';
+      const tmpC = c.temp_package_c > 85 ? 'var(--red)' : c.temp_package_c > 70 ? 'var(--yellow)' : 'var(--green)';
+      return `<tr>
+        <td style="font-size:0.75rem;">${ts}</td>
+        <td style="font-size:0.75rem;">${l.hostname||'-'}</td>
+        <td style="color:${cpuC}">${na(c.usage_pct,'%')}</td>
+        <td style="color:${tmpC}">${na(c.temp_package_c,'°C')}</td>
+        <td>${na(c.power_package_w,'W')}</td>
+        <td>${c.freq_effective_mhz != null ? Math.round(c.freq_effective_mhz)+'MHz' : '-'}</td>
+        <td style="color:var(--purple)">${na(g.usage_pct,'%')}</td>
+        <td>${na(g.temp_c,'°C')}</td>
+        <td>${na(g.power_w,'W')}</td>
+        <td>${na(g.mem_pct,'%')}</td>
+        <td style="color:var(--blue)">${na(m.percent,'%')}</td>
+        <td style="font-size:0.75rem;">${m.used_gb != null ? m.used_gb.toFixed(1)+'/'+m.total_gb.toFixed(1)+'GB' : '-'}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="12" style="color:var(--red);">오류: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+/* ── All DB Dashboard ─────────────────────── */
+async function loadAllDb() {
+  try {
+    const r = await fetch('/api/db/overview/');
+    const d = await r.json();
+
+    // MySQL
+    const mysql = d.mysql || {};
+    document.getElementById('mysql-ok-badge').textContent  = mysql.ok ? '✓ 연결됨' : '✗ 오류';
+    document.getElementById('mysql-ok-badge').style.color  = mysql.ok ? '#60a5fa' : 'var(--red)';
+    if (mysql.ok && mysql.tables) {
+      const total = mysql.tables.reduce((s,t) => s + t.count, 0);
+      document.getElementById('mysql-total-records').textContent = total.toLocaleString();
+      document.getElementById('mysql-tables-list').innerHTML = mysql.tables.map(t =>
+        `<div class="db-table-row">
+          <span style="font-family:monospace;color:var(--text);">${t.name}</span>
+          <span class="db-count-badge" style="background:#1e3a5f;color:#60a5fa;">${t.count.toLocaleString()} rows</span>
+        </div>`
+      ).join('');
+    }
+
+    // MongoDB
+    const mongo = d.mongodb || {};
+    document.getElementById('mongo-ok-badge').textContent = mongo.ok ? '✓ 연결됨' : '✗ 오류';
+    document.getElementById('mongo-ok-badge').style.color = mongo.ok ? 'var(--green)' : 'var(--red)';
+    if (mongo.ok && mongo.collections) {
+      const total = mongo.collections.reduce((s,c) => s + c.count, 0);
+      document.getElementById('mongo-total-docs').textContent = total.toLocaleString();
+      document.getElementById('mongo-colls-list').innerHTML = mongo.collections.map(c =>
+        `<div class="db-table-row">
+          <span style="font-family:monospace;color:var(--text);">${c.name}</span>
+          <span class="db-count-badge" style="background:#1a3a2a;color:var(--green);">${c.count.toLocaleString()} docs</span>
+        </div>`
+      ).join('') || '<div style="color:var(--dim);font-size:0.82rem;">컬렉션 없음</div>';
+    } else {
+      document.getElementById('mongo-colls-list').innerHTML = `<div style="color:var(--red);font-size:0.82rem;">${mongo.error||'연결 실패'}</div>`;
+    }
+
+    // SQLite
+    const sqlite = d.sqlite || {};
+    document.getElementById('sqlite-ok-badge').textContent = sqlite.ok ? '✓ 연결됨' : '✗ 오류';
+    document.getElementById('sqlite-ok-badge').style.color = sqlite.ok ? 'var(--purple)' : 'var(--red)';
+    if (sqlite.ok && sqlite.tables) {
+      const total = sqlite.tables.reduce((s,t) => s + t.count, 0);
+      document.getElementById('sqlite-total-records').textContent = total.toLocaleString();
+      document.getElementById('sqlite-tables-list').innerHTML = sqlite.tables.map(t =>
+        `<div class="db-table-row">
+          <span style="font-family:monospace;color:var(--text);">${t.name}</span>
+          <span class="db-count-badge" style="background:#2a1a3a;color:var(--purple);">${t.count.toLocaleString()} rows</span>
+        </div>`
+      ).join('');
+    }
+  } catch (e) {
+    console.error('loadAllDb:', e);
+  }
+}
+
+/* ── MySQL 상세 ────────────────────────────── */
+async function loadMysqlDetail() {
+  try {
+    const r = await fetch('/api/metrics/');
+    const d = await r.json();
+    if (!d.metrics) return;
+    const tbody = document.getElementById('mysql-metrics-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = d.metrics.map(m => {
+      const cpu = parseFloat(m.cpu_usage).toFixed(1);
+      const col = cpu > 80 ? 'var(--red)' : cpu > 60 ? 'var(--yellow)' : 'var(--green)';
+      const t   = (m.recorded_at || '').slice(11, 19);
+      return `<tr>
+        <td style="font-size:0.75rem;white-space:nowrap;">${t}</td>
+        <td style="font-size:0.75rem;">${m.hostname||'-'}</td>
+        <td style="color:${col}">${cpu}%</td>
+        <td>${parseFloat(m.mem_percent).toFixed(1)}%</td>
+        <td style="font-size:0.75rem;color:var(--dim);">-</td>
+        <td>${parseFloat(m.disk_percent).toFixed(1)}%</td>
+        <td style="font-size:0.75rem;color:var(--dim);">-</td>
+        <td style="font-size:0.75rem;color:var(--dim);">${m.net_bytes_sent||0}</td>
+        <td style="font-size:0.75rem;color:var(--dim);">${m.net_bytes_recv||0}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {}
+}
+
+/* ── SQLite 상세 ───────────────────────────── */
+async function loadSqliteDetail() {
+  try {
+    const r = await fetch('/api/chat/history/');
+    const d = await r.json();
+    if (!d.messages) return;
+    const el = document.getElementById('sqlite-chat-ajax');
+    if (!el) return;
+    if (d.messages.length === 0) return;
+    el.innerHTML = '<div style="font-size:0.75rem;color:var(--dim);margin-bottom:8px;">API로 로드된 최신 메시지:</div>' +
+      d.messages.slice(-30).reverse().map(m => `
+        <div style="display:flex;gap:10px;margin-bottom:8px;padding:10px;background:var(--bg);border-radius:8px;border:1px solid var(--border);">
+          <div>
+            <span class="badge badge-${m.role}" style="white-space:nowrap;">${m.role === 'user' ? '👤 사용자' : '🤖 AI'}</span>
+            <div style="font-size:0.65rem;color:var(--dim);margin-top:3px;text-align:center;">${(m.created_at||'').slice(11,16)}</div>
+          </div>
+          <div style="flex:1;font-size:0.8rem;color:var(--text);line-height:1.6;word-break:break-all;">${escHtml(m.content)}</div>
+        </div>`).join('');
+  } catch (e) {}
+}
+
+/* ── 서비스 링크 동적 생성 ────────────────── */
+function fixLinks() {
+  const host = window.location.hostname;
+  document.querySelectorAll('a.svc-link').forEach(a => {
+    const port = a.dataset.port;
+    const path = a.dataset.path || '';
+    if (port) a.href = `http://${host}:${port}${path}`;
+  });
+}
+document.addEventListener('DOMContentLoaded', fixLinks);
+
+/* ── Windows 노트북 모니터링 ─────────────── */
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  if (b >= 1e12) return (b/1e12).toFixed(2) + ' TB';
+  if (b >= 1e9)  return (b/1e9).toFixed(2)  + ' GB';
+  if (b >= 1e6)  return (b/1e6).toFixed(1)  + ' MB';
+  return Math.round(b/1e3) + ' KB';
+}
+function _na(v, unit='', digits=1) { return v != null ? v.toFixed(digits) + unit : 'N/A'; }
+function _colorPct(pct)  { return pct  > 80 ? 'var(--red)' : pct  > 60 ? 'var(--yellow)' : 'var(--green)'; }
+function _colorTemp(t)   { return t    > 90 ? 'var(--red)' : t    > 75 ? 'var(--yellow)' : 'var(--green)'; }
+
+async function refreshWindows() {
+  try {
+    const r = await fetch('/api/windows/latest/');
+    const offline = r.status === 404 || r.status === 503;
+    document.getElementById('win-offline-msg').style.display = offline ? '' : 'none';
+    document.getElementById('win-online').style.display      = offline ? 'none' : '';
+    if (offline) return;
+
+    const d   = await r.json();
+    const cpu = d.cpu    || {};
+    const gpu = d.gpu    || {};
+    const mem = d.memory || {};
+
+    document.getElementById('win-hostname').textContent = d.hostname || '-';
+    document.getElementById('win-os').textContent       = d.os || '';
+    document.getElementById('win-ts').textContent       = (d.timestamp||'').replace('T',' ').replace('Z','');
+    const lhmBadge = document.getElementById('win-lhm-badge');
+    lhmBadge.textContent = d.lhm_active ? 'LHM ✓' : 'LHM ✗';
+    lhmBadge.style.color = d.lhm_active ? 'var(--green)' : 'var(--dim)';
+
+    document.getElementById('win-cpu-model').textContent = cpu.model || '';
+    const cpuPct = cpu.usage_pct ?? 0;
+    const cpuEl  = document.getElementById('win-cpu-pct');
+    cpuEl.textContent = cpuPct.toFixed(1) + '%';
+    cpuEl.style.color = _colorPct(cpuPct);
+    setBar('win-bar-cpu', cpuPct);
+    document.getElementById('win-cpu-cores').textContent = `${cpu.physical||'?'}코어 ${cpu.logical||'?'}스레드`;
+
+    const cpuTemp = cpu.temp_package_c;
+    const tempEl  = document.getElementById('win-cpu-temp');
+    tempEl.textContent = cpuTemp != null ? cpuTemp.toFixed(0) + '°C' : 'N/A';
+    tempEl.style.color = cpuTemp != null ? _colorTemp(cpuTemp) : 'var(--dim)';
+    const coreTemps = cpu.temp_cores_c || [];
+    document.getElementById('win-cpu-core-temps').textContent = coreTemps.length ? 'cores: ' + coreTemps.map(t => t.toFixed(0)+'°').join(' ') : '';
+
+    const effClk = cpu.freq_effective_mhz;
+    const clkEl  = document.getElementById('win-cpu-clk');
+    clkEl.textContent = effClk != null ? (effClk >= 1000 ? (effClk/1000).toFixed(2)+' GHz' : effClk+' MHz') : 'N/A';
+    document.getElementById('win-cpu-clk-base').textContent = cpu.freq_base_mhz ? `최대 ${(cpu.freq_base_mhz/1000).toFixed(1)} GHz` : '';
+
+    const cpuPwr = cpu.power_package_w;
+    const pwrEl  = document.getElementById('win-cpu-pwr');
+    pwrEl.textContent = cpuPwr != null ? cpuPwr.toFixed(1) + ' W' : 'N/A';
+    pwrEl.style.color = cpuPwr != null ? (cpuPwr > 80 ? 'var(--red)' : cpuPwr > 50 ? 'var(--yellow)' : 'var(--text)') : 'var(--dim)';
+    document.getElementById('win-cpu-pwr-cores').textContent = cpu.power_cores_w != null ? `코어 ${cpu.power_cores_w.toFixed(1)} W` : '';
+
+    const gpuCard = document.getElementById('win-gpu-card');
+    if (gpu.name) {
+      gpuCard.style.display = '';
+      document.getElementById('win-gpu-name').textContent = gpu.name;
+      const gpuPct = gpu.usage_pct ?? 0;
+      const gpuEl  = document.getElementById('win-gpu-pct');
+      gpuEl.textContent = _na(gpu.usage_pct, '%');
+      gpuEl.style.color = _colorPct(gpuPct);
+      setBar('win-bar-gpu', gpuPct);
+      const vramPct = gpu.mem_pct ?? 0;
+      const vramEl  = document.getElementById('win-gpu-vram');
+      vramEl.textContent = _na(gpu.mem_pct, '%');
+      vramEl.style.color = _colorPct(vramPct);
+      setBar('win-bar-vram', vramPct);
+      const usedGb  = gpu.mem_used_mb  != null ? (gpu.mem_used_mb /1024).toFixed(1) : '-';
+      const totalGb = gpu.mem_total_mb != null ? (gpu.mem_total_mb/1024).toFixed(1) : '-';
+      document.getElementById('win-gpu-vram-detail').textContent = `${usedGb} / ${totalGb} GB`;
+      const gpuTmp = gpu.temp_c;
+      const gtEl   = document.getElementById('win-gpu-temp');
+      gtEl.textContent = gpuTmp != null ? gpuTmp.toFixed(1)+'°C' : 'N/A';
+      gtEl.style.color = gpuTmp != null ? _colorTemp(gpuTmp) : 'var(--dim)';
+      document.getElementById('win-gpu-fan').textContent = gpu.fan_pct != null ? `팬 ${gpu.fan_pct}%` : '';
+      const cClk = gpu.clock_core_mhz;
+      const clkEl2 = document.getElementById('win-gpu-clk');
+      clkEl2.textContent = cClk != null ? (cClk >= 1000 ? (cClk/1000).toFixed(2)+' GHz' : Math.round(cClk)+' MHz') : 'N/A';
+      clkEl2.style.color = cClk != null ? 'var(--text)' : 'var(--dim)';
+      const mClk = gpu.clock_mem_mhz;
+      document.getElementById('win-gpu-memclk').textContent = mClk != null ? `메모리 ${Math.round(mClk)} MHz` : '메모리 클럭 N/A';
+      const gpuPwr = gpu.power_w;
+      const gpEl   = document.getElementById('win-gpu-pwr');
+      gpEl.textContent = gpuPwr != null ? gpuPwr.toFixed(1)+' W' : 'N/A';
+      gpEl.style.color = gpuPwr != null ? (gpuPwr > 150 ? 'var(--red)' : gpuPwr > 100 ? 'var(--yellow)' : 'var(--text)') : 'var(--dim)';
+      document.getElementById('win-gpu-pwrlim').textContent = gpu.power_limit_w != null ? `TDP ${gpu.power_limit_w.toFixed(0)} W` : 'TDP N/A';
+    } else {
+      gpuCard.style.display = 'none';
+    }
+
+    const memPct = mem.percent ?? 0;
+    const memEl  = document.getElementById('win-mem-used');
+    memEl.textContent = mem.used_gb != null && mem.total_gb != null ? `${mem.used_gb.toFixed(1)} / ${mem.total_gb.toFixed(1)} GB` : 'N/A';
+    memEl.style.color = _colorPct(memPct);
+    setBar('win-bar-mem', memPct);
+    document.getElementById('win-mem-total').textContent = memPct ? `${memPct.toFixed(1)}% 사용 중` : '';
+    document.getElementById('win-ram-clk').textContent   = mem.clock_mhz != null ? mem.clock_mhz+' MHz' : 'N/A';
+    document.getElementById('win-swap-used').textContent = mem.swap_used_gb  != null ? mem.swap_used_gb.toFixed(1)+' GB' : 'N/A';
+    document.getElementById('win-swap-total').textContent= mem.swap_total_gb != null ? `전체 ${mem.swap_total_gb.toFixed(1)} GB` : '';
+
+    const disks = d.disks || [];
+    document.getElementById('win-disk-tbody').innerHTML = disks.map(disk => {
+      const pct  = disk.percent ?? 0;
+      const col  = pct > 90 ? 'var(--red)' : pct > 75 ? 'var(--yellow)' : 'var(--green)';
+      return `<tr>
+        <td><b>${disk.device}</b></td>
+        <td style="color:var(--dim);font-size:0.75rem">${disk.fstype}</td>
+        <td>${disk.total_gb} GB</td>
+        <td>${disk.used_gb} GB</td>
+        <td>${disk.free_gb} GB</td>
+        <td style="color:${col}">${pct}%</td>
+        <td style="width:80px"><div class="pbar" style="margin:0"><div class="pfill" style="width:${Math.min(pct,100)}%;background:${col}"></div></div></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" style="color:var(--dim);text-align:center;">디스크 없음</td></tr>';
+
+    const net  = d.network || {};
+    const nics = Object.entries(net).filter(([,s]) => s.bytes_recv > 0 || s.bytes_sent > 0);
+    document.getElementById('win-net-tbody').innerHTML = nics.map(([nic, s]) => `<tr>
+      <td><b>${nic}</b></td>
+      <td style="color:var(--blue)">${fmtBytes(s.bytes_sent)}</td>
+      <td style="color:var(--green)">${fmtBytes(s.bytes_recv)}</td>
+      <td style="color:var(--dim);font-size:0.75rem">${s.errin||0} / ${s.errout||0}</td>
+    </tr>`).join('') || '<tr><td colspan="4" style="color:var(--dim);text-align:center;">없음</td></tr>';
+
+  } catch (e) {}
+}
+
+setInterval(refreshWindows, 5000);
+
+/* ── Windows 시계열 차트 ─────────────────── */
+const _wc = {};
+let _wcInit = false;
+
+function _makeWinChart(id, color) {
+  const ctx = document.getElementById(id);
+  if (!ctx) return null;
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ data: [], borderColor: color, backgroundColor: color + '18', borderWidth: 1.8, pointRadius: 0, fill: true, tension: 0.4, spanGaps: true }] },
+    options: { responsive: true, animation: false, plugins: { legend: { display: false } },
+      scales: { x: { display: false }, y: { ticks: { color: '#475569', font: { size: 9 }, maxTicksLimit: 4 }, grid: { color: '#1a2435' }, border: { display: false } } } }
+  });
+}
+
+function _wcUpd(chart, labels, data) {
+  if (!chart) return;
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = data;
+  chart.update('none');
+}
+
+function initWindowsCharts() {
+  if (_wcInit) return;
+  _wcInit = true;
+  _wc['cpu-usage'] = _makeWinChart('wc-cpu-usage', '#38bdf8');
+  _wc['cpu-temp']  = _makeWinChart('wc-cpu-temp',  '#f97316');
+  _wc['cpu-power'] = _makeWinChart('wc-cpu-power', '#f59e0b');
+  _wc['cpu-clock'] = _makeWinChart('wc-cpu-clock', '#22d3ee');
+  _wc['gpu-usage'] = _makeWinChart('wc-gpu-usage', '#a78bfa');
+  _wc['gpu-temp']  = _makeWinChart('wc-gpu-temp',  '#ef4444');
+  _wc['gpu-power'] = _makeWinChart('wc-gpu-power', '#ec4899');
+  _wc['ram']       = _makeWinChart('wc-ram',        '#22c55e');
+}
+
+async function refreshWindowsCharts() {
+  if (!_wcInit) return;
+  try {
+    const r = await fetch('/api/windows/history/?limit=60');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.data || !d.data.length) return;
+    const pts = d.data;
+    const lbl = pts.map(p => (p.timestamp || '').slice(11, 16));
+    _wcUpd(_wc['cpu-usage'], lbl, pts.map(p => (p.cpu  || {}).usage_pct          ?? null));
+    _wcUpd(_wc['cpu-temp'],  lbl, pts.map(p => (p.cpu  || {}).temp_package_c     ?? null));
+    _wcUpd(_wc['cpu-power'], lbl, pts.map(p => (p.cpu  || {}).power_package_w    ?? null));
+    _wcUpd(_wc['cpu-clock'], lbl, pts.map(p => (p.cpu  || {}).freq_effective_mhz ?? null));
+    _wcUpd(_wc['gpu-usage'], lbl, pts.map(p => (p.gpu  || {}).usage_pct          ?? null));
+    _wcUpd(_wc['gpu-temp'],  lbl, pts.map(p => (p.gpu  || {}).temp_c             ?? null));
+    _wcUpd(_wc['gpu-power'], lbl, pts.map(p => (p.gpu  || {}).power_w            ?? null));
+    _wcUpd(_wc['ram'],       lbl, pts.map(p => (p.memory || {}).percent          ?? null));
+    const last = pts[pts.length - 1];
+    const c = last.cpu || {}, g = last.gpu || {}, m = last.memory || {};
+    const _s = (id, v) => { const e = document.getElementById(id); if (e && v != null) e.textContent = v; };
+    _s('wv-cpu-usage', c.usage_pct           != null ? c.usage_pct.toFixed(1)+'%'              : '-');
+    _s('wv-cpu-temp',  c.temp_package_c       != null ? c.temp_package_c.toFixed(1)+'°C'        : '-');
+    _s('wv-cpu-power', c.power_package_w      != null ? c.power_package_w.toFixed(1)+'W'        : '-');
+    _s('wv-cpu-clock', c.freq_effective_mhz   != null ? Math.round(c.freq_effective_mhz)+'MHz'  : '-');
+    _s('wv-gpu-usage', g.usage_pct != null ? g.usage_pct.toFixed(1)+'%' : '-');
+    _s('wv-gpu-temp',  g.temp_c    != null ? g.temp_c.toFixed(1)+'°C'   : '-');
+    _s('wv-gpu-power', g.power_w   != null ? g.power_w.toFixed(1)+'W'   : '-');
+    _s('wv-ram',       m.percent   != null ? m.percent.toFixed(1)+'%'   : '-');
+  } catch (e) {}
+}
+
+setInterval(refreshWindowsCharts, 5000);
+
+/* ── VMware 카테고리 로그 ─────────────────── */
+const _vmCatCharts = {};
+
+function _makeCatChart(id, color) {
+  const ctx = document.getElementById(id);
+  if (!ctx) return null;
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ data: [], borderColor: color, backgroundColor: color + '22', borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3 }] },
+    options: { responsive: true, animation: false, plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: '#1e293b' } },
+        y: { min: 0, max: 100, ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } }
+      }
+    }
+  });
+}
+
+async function loadVmCat(cat) {
+  if (cat === 'net') {
+    const tb    = document.getElementById('vcat-net-tbody');
+    const total = document.getElementById('vcat-net-total');
+    if (tb) tb.innerHTML = '<tr><td colspan="4" style="color:var(--dim);text-align:center;">로딩 중...</td></tr>';
+    try {
+      const r = await fetch('/api/logs/?limit=100');
+      const d = await r.json();
+      if (total) total.textContent = d.total || 0;
+      const logs = d.logs || [];
+      if (!logs.length) {
+        if (tb) tb.innerHTML = '<tr><td colspan="4" style="color:var(--dim);text-align:center;">네트워크 로그 없음</td></tr>';
+        return;
+      }
+      if (tb) tb.innerHTML = logs.map(l => `<tr>
+        <td style="font-size:0.78rem;">${l.timestamp || '-'}</td>
+        <td style="color:var(--blue)">${Math.round((l.net_bytes_sent || 0) / 1024)} KB</td>
+        <td style="color:var(--green)">${Math.round((l.net_bytes_recv || 0) / 1024)} KB</td>
+        <td style="font-size:0.72rem;color:var(--purple);">${l.source || '?'}</td>
+      </tr>`).join('');
+    } catch (e) {
+      if (tb) tb.innerHTML = `<tr><td colspan="4" style="color:var(--red);">오류: ${escHtml(e.message)}</td></tr>`;
+    }
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/metrics/?limit=100');
+    const d = await r.json();
+    if (!d.metrics) return;
+    const metrics  = d.metrics;
+    const reversed = [...metrics].reverse();
+    const labels   = reversed.map(m => (m.recorded_at || '').slice(11, 19));
+
+    if (cat === 'cpu') {
+      if (!_vmCatCharts.cpu) _vmCatCharts.cpu = _makeCatChart('vcat-chart-cpu', '#38bdf8');
+      const data = reversed.map(m => parseFloat(m.cpu_usage));
+      if (_vmCatCharts.cpu) { _vmCatCharts.cpu.data.labels = labels; _vmCatCharts.cpu.data.datasets[0].data = data; _vmCatCharts.cpu.update('none'); }
+      const latest = metrics[0] || {};
+      const val = parseFloat(latest.cpu_usage || 0);
+      const el = document.getElementById('vcat-cpu-val');
+      if (el) { el.textContent = val.toFixed(1) + '%'; el.style.color = val > 80 ? 'var(--red)' : val > 60 ? 'var(--yellow)' : 'var(--green)'; }
+      setBar('vcat-cpu-bar', val);
+      const timeEl = document.getElementById('vcat-cpu-time');
+      if (timeEl) timeEl.textContent = latest.recorded_at || '';
+      const tb = document.getElementById('vcat-cpu-tbody');
+      if (tb) tb.innerHTML = metrics.map(m => {
+        const v = parseFloat(m.cpu_usage).toFixed(1);
+        const c = v > 80 ? 'var(--red)' : v > 60 ? 'var(--yellow)' : 'var(--green)';
+        return `<tr>
+          <td style="font-size:0.78rem;">${(m.recorded_at || '').slice(11, 19)}</td>
+          <td style="font-size:0.78rem;color:var(--dim);">${m.hostname || '-'}</td>
+          <td style="color:${c};font-weight:700;">${v}%</td>
+        </tr>`;
+      }).join('');
+    }
+
+    if (cat === 'mem') {
+      if (!_vmCatCharts.mem) _vmCatCharts.mem = _makeCatChart('vcat-chart-mem', '#22c55e');
+      const data = reversed.map(m => parseFloat(m.mem_percent));
+      if (_vmCatCharts.mem) { _vmCatCharts.mem.data.labels = labels; _vmCatCharts.mem.data.datasets[0].data = data; _vmCatCharts.mem.update('none'); }
+      const latest = metrics[0] || {};
+      const val = parseFloat(latest.mem_percent || 0);
+      const el = document.getElementById('vcat-mem-val');
+      if (el) { el.textContent = val.toFixed(1) + '%'; el.style.color = val > 85 ? 'var(--red)' : val > 70 ? 'var(--yellow)' : 'var(--green)'; }
+      setBar('vcat-mem-bar', val);
+      const detailEl = document.getElementById('vcat-mem-detail');
+      if (detailEl) detailEl.textContent = latest.mem_used_gb != null ? `${latest.mem_used_gb}GB / ${latest.mem_total_gb}GB` : '';
+      const tb = document.getElementById('vcat-mem-tbody');
+      if (tb) tb.innerHTML = metrics.map(m => {
+        const v = parseFloat(m.mem_percent).toFixed(1);
+        return `<tr>
+          <td style="font-size:0.78rem;">${(m.recorded_at || '').slice(11, 19)}</td>
+          <td>${v}%</td>
+          <td style="font-size:0.78rem;color:var(--dim);">${m.mem_used_gb != null ? m.mem_used_gb + 'GB / ' + m.mem_total_gb + 'GB' : '-'}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    if (cat === 'disk') {
+      if (!_vmCatCharts.disk) _vmCatCharts.disk = _makeCatChart('vcat-chart-disk', '#f59e0b');
+      const data = reversed.map(m => parseFloat(m.disk_percent));
+      if (_vmCatCharts.disk) { _vmCatCharts.disk.data.labels = labels; _vmCatCharts.disk.data.datasets[0].data = data; _vmCatCharts.disk.update('none'); }
+      const latest = metrics[0] || {};
+      const val = parseFloat(latest.disk_percent || 0);
+      const el = document.getElementById('vcat-disk-val');
+      if (el) { el.textContent = val.toFixed(1) + '%'; el.style.color = val > 90 ? 'var(--red)' : val > 75 ? 'var(--yellow)' : 'var(--green)'; }
+      setBar('vcat-disk-bar', val);
+      const detailEl = document.getElementById('vcat-disk-detail');
+      if (detailEl) detailEl.textContent = latest.disk_used_gb != null ? `${latest.disk_used_gb}GB / ${latest.disk_total_gb}GB` : '';
+      const tb = document.getElementById('vcat-disk-tbody');
+      if (tb) tb.innerHTML = metrics.map(m => {
+        const v = parseFloat(m.disk_percent).toFixed(1);
+        return `<tr>
+          <td style="font-size:0.78rem;">${(m.recorded_at || '').slice(11, 19)}</td>
+          <td>${v}%</td>
+          <td style="font-size:0.78rem;color:var(--dim);">${m.disk_used_gb != null ? m.disk_used_gb + 'GB / ' + m.disk_total_gb + 'GB' : '-'}</td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {}
+}
+
+/* ── Windows 로그 (MongoDB) ──────────────── */
+let _winLogsData = [];
+
+async function loadWinLogs() {
+  const tb    = document.getElementById('wlog-tbody');
+  const total = document.getElementById('wlog-total');
+  if (tb) tb.innerHTML = '<tr><td colspan="8" style="color:var(--dim);text-align:center;">로딩 중...</td></tr>';
+  try {
+    const r = await fetch('/api/windows/logs/?limit=100');
+    const d = await r.json();
+    if (total) total.textContent = d.total || 0;
+    _winLogsData = d.logs || [];
+    // reset filter buttons
+    const btns = document.querySelectorAll('#wsub-logs .sub-nav .sub-nav-btn');
+    btns.forEach(b => b.classList.remove('active'));
+    if (btns[0]) btns[0].classList.add('active');
+    renderWinLogs('all');
+  } catch (e) {
+    if (tb) tb.innerHTML = `<tr><td colspan="8" style="color:var(--red);">오류: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+function filterWinLogs(cat, btn) {
+  if (btn) {
+    document.querySelectorAll('#wsub-logs .sub-nav .sub-nav-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  renderWinLogs(cat);
+}
+
+function renderWinLogs(cat) {
+  const thead = document.getElementById('wlog-thead');
+  const tbody = document.getElementById('wlog-tbody');
+  if (!tbody) return;
+  const na = (v, u = '', d = 1) => v != null ? parseFloat(v).toFixed(d) + u : '-';
+
+  if (!_winLogsData.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--dim);text-align:center;">Windows 로그 없음 (에이전트 오프라인)</td></tr>';
+    return;
+  }
+
+  if (cat === 'cpu') {
+    if (thead) thead.innerHTML = '<tr><th>시각</th><th>호스트</th><th>CPU 사용률</th><th>CPU 온도</th><th>CPU 전력</th><th>CPU 클럭</th></tr>';
+    tbody.innerHTML = _winLogsData.map(l => {
+      const c  = l.cpu || {};
+      const ts = (l.timestamp || '-').replace('T', ' ').replace('Z', '').slice(0, 19);
+      const cpuC = (c.usage_pct || 0) > 80 ? 'var(--red)' : (c.usage_pct || 0) > 60 ? 'var(--yellow)' : 'var(--green)';
+      const tmpC = (c.temp_package_c || 0) > 85 ? 'var(--red)' : (c.temp_package_c || 0) > 70 ? 'var(--yellow)' : 'var(--green)';
+      return `<tr>
+        <td style="font-size:0.75rem;">${ts}</td>
+        <td style="font-size:0.75rem;">${l.hostname || '-'}</td>
+        <td style="color:${cpuC}">${na(c.usage_pct, '%')}</td>
+        <td style="color:${tmpC}">${na(c.temp_package_c, '°C', 0)}</td>
+        <td>${na(c.power_package_w, 'W')}</td>
+        <td>${c.freq_effective_mhz != null ? Math.round(c.freq_effective_mhz) + 'MHz' : '-'}</td>
+      </tr>`;
+    }).join('');
+    return;
+  }
+
+  if (cat === 'gpu') {
+    if (thead) thead.innerHTML = '<tr><th>시각</th><th>호스트</th><th>GPU 사용률</th><th>GPU 온도</th><th>GPU 전력</th><th>VRAM %</th></tr>';
+    tbody.innerHTML = _winLogsData.map(l => {
+      const g  = l.gpu || {};
+      const ts = (l.timestamp || '-').replace('T', ' ').replace('Z', '').slice(0, 19);
+      return `<tr>
+        <td style="font-size:0.75rem;">${ts}</td>
+        <td style="font-size:0.75rem;">${l.hostname || '-'}</td>
+        <td style="color:var(--purple)">${na(g.usage_pct, '%')}</td>
+        <td>${na(g.temp_c, '°C', 0)}</td>
+        <td>${na(g.power_w, 'W')}</td>
+        <td>${na(g.mem_pct, '%')}</td>
+      </tr>`;
+    }).join('');
+    return;
+  }
+
+  if (cat === 'ram') {
+    if (thead) thead.innerHTML = '<tr><th>시각</th><th>호스트</th><th>RAM %</th><th>사용 GB</th><th>전체 GB</th></tr>';
+    tbody.innerHTML = _winLogsData.map(l => {
+      const m  = l.memory || {};
+      const ts = (l.timestamp || '-').replace('T', ' ').replace('Z', '').slice(0, 19);
+      const ramC = (m.percent || 0) > 85 ? 'var(--red)' : (m.percent || 0) > 70 ? 'var(--yellow)' : 'var(--green)';
+      return `<tr>
+        <td style="font-size:0.75rem;">${ts}</td>
+        <td style="font-size:0.75rem;">${l.hostname || '-'}</td>
+        <td style="color:${ramC}">${na(m.percent, '%')}</td>
+        <td style="color:var(--blue)">${m.used_gb != null ? m.used_gb.toFixed(1) : '-'} GB</td>
+        <td>${m.total_gb != null ? m.total_gb.toFixed(1) : '-'} GB</td>
+      </tr>`;
+    }).join('');
+    return;
+  }
+
+  // all
+  if (thead) thead.innerHTML = '<tr><th>시각</th><th>호스트</th><th>CPU %</th><th>CPU °C</th><th>GPU %</th><th>GPU °C</th><th>VRAM %</th><th>RAM %</th></tr>';
+  tbody.innerHTML = _winLogsData.map(l => {
+    const c  = l.cpu || {}, g = l.gpu || {}, m = l.memory || {};
+    const ts = (l.timestamp || '-').replace('T', ' ').replace('Z', '').slice(0, 19);
+    const cpuC = (c.usage_pct || 0) > 80 ? 'var(--red)' : (c.usage_pct || 0) > 60 ? 'var(--yellow)' : 'var(--green)';
+    return `<tr>
+      <td style="font-size:0.75rem;">${ts}</td>
+      <td style="font-size:0.75rem;">${l.hostname || '-'}</td>
+      <td style="color:${cpuC}">${na(c.usage_pct, '%')}</td>
+      <td>${na(c.temp_package_c, '°C', 0)}</td>
+      <td style="color:var(--purple)">${na(g.usage_pct, '%')}</td>
+      <td>${na(g.temp_c, '°C', 0)}</td>
+      <td>${na(g.mem_pct, '%')}</td>
+      <td style="color:var(--blue)">${na(m.percent, '%')}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── 폴링 시작 ────────────────────────────── */
+initCharts();
+refreshMetrics();
+refreshCharts();
+setInterval(refreshMetrics, 5000);
+setInterval(refreshCharts, 5000);
+</script>
+</body>
+</html>

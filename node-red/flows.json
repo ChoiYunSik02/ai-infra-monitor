@@ -1,0 +1,375 @@
+[
+  { "id": "tab-collector", "type": "tab", "label": "시스템 메트릭 수집 (Linux)", "disabled": false },
+  { "id": "tab-windows",   "type": "tab", "label": "Windows 노트북 모니터링",   "disabled": false },
+
+  { "id": "db-config", "type": "MySQLdatabase", "name": "infra_monitor",
+    "host": "mysql", "port": "3306", "db": "infra_monitor", "tz": "+09:00",
+    "charset": "UTF8MB4_GENERAL_CI", "user": "monitor_user", "password": "monitor_pass123" },
+
+  { "id": "linux-ui-tab",  "type": "ui_tab",   "name": "🐧 Linux VM",        "icon": "computer",       "order": 1, "disabled": false, "hidden": false },
+  { "id": "win-ui-tab",    "type": "ui_tab",   "name": "🖥️ Windows 노트북",  "icon": "laptop_windows", "order": 2, "disabled": false, "hidden": false },
+
+  { "id": "linux-grp-header", "type": "ui_group", "name": "시스템 상태",   "tab": "linux-ui-tab", "order": 1, "disp": false, "width": "12", "collapse": false },
+  { "id": "linux-grp-cpu",    "type": "ui_group", "name": "CPU",          "tab": "linux-ui-tab", "order": 2, "disp": true,  "width": "12", "collapse": false },
+  { "id": "linux-grp-mem",    "type": "ui_group", "name": "메모리",        "tab": "linux-ui-tab", "order": 3, "disp": true,  "width": "12", "collapse": false },
+  { "id": "linux-grp-disk",   "type": "ui_group", "name": "디스크",        "tab": "linux-ui-tab", "order": 4, "disp": true,  "width": "12", "collapse": false },
+  { "id": "linux-grp-net",    "type": "ui_group", "name": "네트워크",      "tab": "linux-ui-tab", "order": 5, "disp": true,  "width": "12", "collapse": false },
+
+  { "id": "win-grp-header", "type": "ui_group", "name": "노트북 상태", "tab": "win-ui-tab", "order": 1, "disp": false, "width": "12", "collapse": false },
+  { "id": "win-grp-cpu",    "type": "ui_group", "name": "CPU",        "tab": "win-ui-tab", "order": 2, "disp": true,  "width": "12", "collapse": false },
+  { "id": "win-grp-gpu",    "type": "ui_group", "name": "GPU",        "tab": "win-ui-tab", "order": 3, "disp": true,  "width": "12", "collapse": false },
+  { "id": "win-grp-memory", "type": "ui_group", "name": "RAM",        "tab": "win-ui-tab", "order": 4, "disp": true,  "width": "12", "collapse": false },
+
+  {
+    "id": "inject-5s", "type": "inject", "z": "tab-collector",
+    "name": "5초마다", "repeat": "5", "once": true, "onceDelay": "1",
+    "payload": "", "payloadType": "date",
+    "x": 110, "y": 80, "wires": [["exec-metrics"]]
+  },
+  {
+    "id": "exec-metrics", "type": "exec", "z": "tab-collector",
+    "name": "메트릭 수집", "command": "bash /usr/local/bin/collect_metrics.sh",
+    "addpay": false, "useSpawn": false,
+    "x": 290, "y": 80, "wires": [["func-parse"], [], []]
+  },
+  {
+    "id": "func-parse", "type": "function", "z": "tab-collector",
+    "name": "파싱 & SQL",
+    "func": "var parts = msg.payload.trim().split(/\\s+/);\nif (parts.length < 7) { node.warn('파싱 실패'); return null; }\nvar cpu=parseFloat(parts[0])||0, mTot=parseInt(parts[1])||0, mUsed=parseInt(parts[2])||0;\nvar mPct=mTot>0?parseFloat((mUsed/mTot*100).toFixed(2)):0;\nvar dTot=parseInt(parts[3])||0, dUsed=parseInt(parts[4])||0, dPct=parseFloat(parts[5])||0;\nvar nSent=parseInt(parts[6])||0, nRecv=parseInt(parts[7])||0;\nvar data={cpu,mTot,mUsed,mPct,dTot,dUsed,dPct,nSent,nRecv};\nflow.set('lastMetric',data);\nmsg.topic='INSERT INTO system_metrics (cpu_usage,mem_total,mem_used,mem_percent,disk_total,disk_used,disk_percent,net_bytes_sent,net_bytes_recv) VALUES (?,?,?,?,?,?,?,?,?)';\nmsg.payload=[cpu,mTot,mUsed,mPct,dTot,dUsed,dPct,nSent,nRecv];\nnode.status({fill:cpu>80?'red':cpu>60?'yellow':'green',shape:'dot',text:'CPU:'+cpu.toFixed(1)+'% MEM:'+mPct.toFixed(1)+'%'});\nreturn msg;",
+    "outputs": 1,
+    "x": 480, "y": 80,
+    "wires": [["mysql-metrics", "func-alert-check", "func-linux-ui"]]
+  },
+  {
+    "id": "mysql-metrics", "type": "mysql", "z": "tab-collector",
+    "name": "MySQL 저장", "mydb": "db-config",
+    "x": 700, "y": 40, "wires": [[]]
+  },
+  {
+    "id": "func-alert-check", "type": "function", "z": "tab-collector",
+    "name": "임계값 체크",
+    "func": "var d=flow.get('lastMetric')||{};\nvar alerts=[];\nif(d.cpu>80)  alerts.push({type:'cpu_high', thr:80, val:d.cpu, msg:'CPU 위험: '+d.cpu.toFixed(1)+'%'});\nif(d.mPct>85) alerts.push({type:'mem_high', thr:85, val:d.mPct,msg:'메모리 위험: '+d.mPct.toFixed(1)+'%'});\nif(d.dPct>90) alerts.push({type:'disk_high',thr:90, val:d.dPct,msg:'디스크 위험: '+d.dPct.toFixed(1)+'%'});\nif(!alerts.length) return null;\nvar a=alerts[0];\nmsg.topic='INSERT INTO alert_history (alert_type,threshold,actual_value,message) VALUES (?,?,?,?)';\nmsg.payload=[a.type,a.thr,a.val,a.msg];\nreturn msg;",
+    "outputs": 1,
+    "x": 700, "y": 120, "wires": [["mysql-alerts"]]
+  },
+  {
+    "id": "mysql-alerts", "type": "mysql", "z": "tab-collector",
+    "name": "알림 저장", "mydb": "db-config",
+    "x": 900, "y": 120, "wires": [[]]
+  },
+  {
+    "id": "func-linux-ui", "type": "function", "z": "tab-collector",
+    "name": "UI 라우팅",
+    "func": "var d=flow.get('lastMetric')||{};\nvar cpu=+(d.cpu||0).toFixed(1), mem=+(d.mPct||0).toFixed(1), disk=+(d.dPct||0).toFixed(1);\nvar sentGB=((d.nSent||0)/1073741824).toFixed(3);\nvar recvGB=((d.nRecv||0)/1073741824).toFixed(3);\nreturn [\n  {payload:cpu,  topic:'CPU (%)'},\n  {payload:mem,  topic:'MEM (%)'},\n  {payload:disk, topic:'DISK (%)'},\n  {payload:sentGB+' GB', topic:'송신'},\n  {payload:recvGB+' GB', topic:'수신'}\n];",
+    "outputs": 5,
+    "x": 700, "y": 200,
+    "wires": [
+      ["linux-gauge-cpu",  "linux-chart-cpu"],
+      ["linux-gauge-mem",  "linux-chart-mem"],
+      ["linux-gauge-disk", "linux-chart-disk"],
+      ["linux-text-sent"],
+      ["linux-text-recv"]
+    ]
+  },
+
+  {
+    "id": "linux-tpl-header", "type": "ui_template", "z": "tab-collector",
+    "name": "상태 헤더", "group": "linux-grp-header", "order": 1,
+    "width": "12", "height": "1",
+    "format": "<div style='display:flex;align-items:center;gap:16px;padding:6px 4px;'><div style='width:10px;height:10px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e;animation:pulse 2s infinite;flex-shrink:0'></div><span style='color:#e2e8f0;font-weight:700;font-size:1rem;'>Zorin OS VM</span><span style='color:#64748b;font-size:0.8rem;'>192.168.0.37</span><span style='margin-left:auto;color:#94a3b8;font-size:0.75rem;'>● Live · 5초 자동갱신</span></div><style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}</style>",
+    "storeOutMessages": false, "fwdInMessages": false, "resendOnRefresh": true, "templateScope": "local",
+    "x": 200, "y": 300, "wires": [[]]
+  },
+
+  {
+    "id": "linux-gauge-cpu", "type": "ui_gauge", "z": "tab-collector",
+    "name": "CPU 게이지", "group": "linux-grp-cpu", "order": 1,
+    "width": "4", "height": "4",
+    "gtype": "gage", "title": "CPU 사용률", "label": "%",
+    "format": "{{value | number:1}}%",
+    "min": "0", "max": "100",
+    "colors": ["#22c55e", "#f59e0b", "#ef4444"], "seg1": "60", "seg2": "80",
+    "x": 960, "y": 160, "wires": []
+  },
+  {
+    "id": "linux-chart-cpu", "type": "ui_chart", "z": "tab-collector",
+    "name": "CPU 차트", "group": "linux-grp-cpu", "order": 2,
+    "width": "8", "height": "4",
+    "label": "CPU 사용률 (%)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier", "nodata": "대기 중...",
+    "dot": false, "ymin": "0", "ymax": "100",
+    "removeOlder": "5", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#38bdf8"], "useOneColor": true, "useUTC": false,
+    "x": 1160, "y": 160, "wires": [[]]
+  },
+
+  {
+    "id": "linux-gauge-mem", "type": "ui_gauge", "z": "tab-collector",
+    "name": "MEM 게이지", "group": "linux-grp-mem", "order": 1,
+    "width": "4", "height": "4",
+    "gtype": "gage", "title": "메모리 사용률", "label": "%",
+    "format": "{{value | number:1}}%",
+    "min": "0", "max": "100",
+    "colors": ["#22c55e", "#f59e0b", "#ef4444"], "seg1": "70", "seg2": "85",
+    "x": 960, "y": 240, "wires": []
+  },
+  {
+    "id": "linux-chart-mem", "type": "ui_chart", "z": "tab-collector",
+    "name": "MEM 차트", "group": "linux-grp-mem", "order": 2,
+    "width": "8", "height": "4",
+    "label": "메모리 사용률 (%)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier", "nodata": "대기 중...",
+    "dot": false, "ymin": "0", "ymax": "100",
+    "removeOlder": "5", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#22c55e"], "useOneColor": true, "useUTC": false,
+    "x": 1160, "y": 240, "wires": [[]]
+  },
+
+  {
+    "id": "linux-gauge-disk", "type": "ui_gauge", "z": "tab-collector",
+    "name": "DISK 게이지", "group": "linux-grp-disk", "order": 1,
+    "width": "4", "height": "4",
+    "gtype": "gage", "title": "디스크 사용률", "label": "%",
+    "format": "{{value | number:1}}%",
+    "min": "0", "max": "100",
+    "colors": ["#22c55e", "#f59e0b", "#ef4444"], "seg1": "75", "seg2": "90",
+    "x": 960, "y": 320, "wires": []
+  },
+  {
+    "id": "linux-chart-disk", "type": "ui_chart", "z": "tab-collector",
+    "name": "DISK 차트", "group": "linux-grp-disk", "order": 2,
+    "width": "8", "height": "4",
+    "label": "디스크 사용률 (%)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier", "nodata": "대기 중...",
+    "dot": false, "ymin": "0", "ymax": "100",
+    "removeOlder": "5", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#f59e0b"], "useOneColor": true, "useUTC": false,
+    "x": 1160, "y": 320, "wires": [[]]
+  },
+
+  {
+    "id": "linux-text-sent", "type": "ui_text", "z": "tab-collector",
+    "name": "네트워크 송신", "group": "linux-grp-net", "order": 1,
+    "width": "6", "height": "1",
+    "label": "📤 누적 송신", "format": "{{msg.payload}}",
+    "layout": "col-center", "style": false, "fontSize": "18", "color": "#38bdf8",
+    "x": 960, "y": 400, "wires": []
+  },
+  {
+    "id": "linux-text-recv", "type": "ui_text", "z": "tab-collector",
+    "name": "네트워크 수신", "group": "linux-grp-net", "order": 2,
+    "width": "6", "height": "1",
+    "label": "📥 누적 수신", "format": "{{msg.payload}}",
+    "layout": "col-center", "style": false, "fontSize": "18", "color": "#22c55e",
+    "x": 1160, "y": 400, "wires": []
+  },
+
+  {
+    "id": "win-inject-10s", "type": "inject", "z": "tab-windows",
+    "name": "10초마다", "repeat": "10", "once": true, "onceDelay": "2",
+    "payload": "", "payloadType": "date",
+    "x": 110, "y": 80, "wires": [["win-http-get"]]
+  },
+  {
+    "id": "win-http-get", "type": "http request", "z": "tab-windows",
+    "name": "Windows 최신 데이터", "method": "GET", "ret": "obj",
+    "url": "http://django:8000/api/windows/latest/",
+    "x": 320, "y": 80, "wires": [["win-func-route"]]
+  },
+  {
+    "id": "win-func-route", "type": "function", "z": "tab-windows",
+    "name": "데이터 파싱 & 라우팅",
+    "func": "if(!msg.payload||msg.payload.error){node.status({fill:'red',shape:'ring',text:'오프라인'});return null;}\nvar d=msg.payload, cpu=d.cpu||{}, gpu=d.gpu||{}, mem=d.memory||{};\nvar cpuPct=+(cpu.usage_pct||0).toFixed(1);\nvar cpuTmp=+(cpu.temp_package_c||0).toFixed(1);\nvar cpuPwr=+(cpu.power_package_w||0).toFixed(1);\nvar cpuClk=Math.round(cpu.freq_effective_mhz||0);\nvar gpuPct=+(gpu.usage_pct||0).toFixed(1);\nvar gpuTmp=+(gpu.temp_c||0).toFixed(1);\nvar gpuPwr=+(gpu.power_w||0).toFixed(1);\nvar vram=+(gpu.mem_pct||0).toFixed(1);\nvar ramPct=+(mem.percent||0).toFixed(1);\nvar ramStr=(mem.used_gb||0).toFixed(1)+' / '+(mem.total_gb||0).toFixed(1)+' GB';\nnode.status({fill:'green',shape:'dot',text:'CPU:'+cpuPct+'% GPU:'+gpuPct+'% RAM:'+ramPct+'%'});\nreturn[\n  {payload:cpuPct, topic:'CPU (%)'},\n  {payload:cpuTmp, topic:'CPU 온도 (°C)'},\n  {payload:cpuPwr, topic:'CPU 전력 (W)'},\n  {payload:cpuClk+' MHz', topic:'cpu_clk'},\n  {payload:gpuPct, topic:'GPU (%)'},\n  {payload:gpuTmp, topic:'GPU 온도 (°C)'},\n  {payload:gpuPwr, topic:'GPU 전력 (W)'},\n  {payload:vram,   topic:'VRAM (%)'},\n  {payload:ramPct, topic:'RAM (%)'},\n  {payload:ramStr, topic:'ram_detail'}\n];",
+    "outputs": 10,
+    "x": 560, "y": 80,
+    "wires": [
+      ["win-gauge-cpu",  "win-chart-cpu"],
+      ["win-text-cpu-temp", "win-chart-cpu-temp"],
+      ["win-text-cpu-pwr",  "win-chart-cpu-pwr"],
+      ["win-text-cpu-clk"],
+      ["win-gauge-gpu",  "win-chart-gpu"],
+      ["win-text-gpu-temp", "win-chart-gpu-temp"],
+      ["win-text-gpu-pwr",  "win-chart-gpu-pwr"],
+      ["win-gauge-vram"],
+      ["win-gauge-ram",  "win-chart-ram"],
+      ["win-text-ram-detail"]
+    ]
+  },
+
+  {
+    "id": "win-tpl-header", "type": "ui_template", "z": "tab-windows",
+    "name": "노트북 헤더", "group": "win-grp-header", "order": 1,
+    "width": "12", "height": "1",
+    "format": "<div style='display:flex;align-items:center;gap:16px;padding:6px 4px;'><div style='width:10px;height:10px;border-radius:50%;background:#38bdf8;box-shadow:0 0 8px #38bdf8;animation:pulse 2s infinite;flex-shrink:0'></div><span style='color:#e2e8f0;font-weight:700;font-size:1rem;'>Windows 노트북</span><span style='color:#64748b;font-size:0.8rem;'>RTX 4070 Laptop · 32GB RAM</span><span style='margin-left:auto;color:#94a3b8;font-size:0.75rem;'>● Live · 10초 자동갱신</span></div><style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}</style>",
+    "storeOutMessages": false, "fwdInMessages": false, "resendOnRefresh": true, "templateScope": "local",
+    "x": 200, "y": 200, "wires": [[]]
+  },
+
+  {
+    "id": "win-gauge-cpu", "type": "ui_gauge", "z": "tab-windows",
+    "name": "CPU 게이지", "group": "win-grp-cpu", "order": 1,
+    "width": "3", "height": "3",
+    "gtype": "gage", "title": "CPU 사용률", "label": "%",
+    "format": "{{value | number:1}}%",
+    "min": "0", "max": "100",
+    "colors": ["#22c55e", "#f59e0b", "#ef4444"], "seg1": "60", "seg2": "80",
+    "x": 900, "y": 120, "wires": []
+  },
+  {
+    "id": "win-text-cpu-temp", "type": "ui_text", "z": "tab-windows",
+    "name": "CPU 온도", "group": "win-grp-cpu", "order": 2,
+    "width": "3", "height": "2",
+    "label": "🌡 CPU 온도", "format": "{{msg.payload | number:1}} °C",
+    "layout": "col-center", "style": false, "fontSize": "22", "color": "#f97316",
+    "x": 900, "y": 180, "wires": []
+  },
+  {
+    "id": "win-text-cpu-pwr", "type": "ui_text", "z": "tab-windows",
+    "name": "CPU 전력", "group": "win-grp-cpu", "order": 3,
+    "width": "3", "height": "2",
+    "label": "⚡ CPU 전력", "format": "{{msg.payload | number:1}} W",
+    "layout": "col-center", "style": false, "fontSize": "22", "color": "#f59e0b",
+    "x": 900, "y": 240, "wires": []
+  },
+  {
+    "id": "win-text-cpu-clk", "type": "ui_text", "z": "tab-windows",
+    "name": "CPU 클럭", "group": "win-grp-cpu", "order": 4,
+    "width": "3", "height": "2",
+    "label": "🔄 CPU 클럭", "format": "{{msg.payload}}",
+    "layout": "col-center", "style": false, "fontSize": "20", "color": "#22d3ee",
+    "x": 900, "y": 300, "wires": []
+  },
+  {
+    "id": "win-chart-cpu", "type": "ui_chart", "z": "tab-windows",
+    "name": "CPU 사용률 차트", "group": "win-grp-cpu", "order": 5,
+    "width": "12", "height": "4",
+    "label": "CPU 사용률 (%)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier",
+    "dot": false, "ymin": "0", "ymax": "100",
+    "removeOlder": "10", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#38bdf8"], "useOneColor": true, "useUTC": false,
+    "x": 900, "y": 360, "wires": [[]]
+  },
+  {
+    "id": "win-chart-cpu-temp", "type": "ui_chart", "z": "tab-windows",
+    "name": "CPU 온도 차트", "group": "win-grp-cpu", "order": 6,
+    "width": "6", "height": "3",
+    "label": "CPU 온도 (°C)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier",
+    "dot": false, "ymin": "20", "ymax": "105",
+    "removeOlder": "10", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#f97316"], "useOneColor": true, "useUTC": false,
+    "x": 900, "y": 420, "wires": [[]]
+  },
+  {
+    "id": "win-chart-cpu-pwr", "type": "ui_chart", "z": "tab-windows",
+    "name": "CPU 전력 차트", "group": "win-grp-cpu", "order": 7,
+    "width": "6", "height": "3",
+    "label": "CPU 전력 (W)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier",
+    "dot": false, "ymin": "0", "ymax": "150",
+    "removeOlder": "10", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#f59e0b"], "useOneColor": true, "useUTC": false,
+    "x": 900, "y": 480, "wires": [[]]
+  },
+
+  {
+    "id": "win-gauge-gpu", "type": "ui_gauge", "z": "tab-windows",
+    "name": "GPU 게이지", "group": "win-grp-gpu", "order": 1,
+    "width": "3", "height": "3",
+    "gtype": "gage", "title": "GPU 사용률", "label": "%",
+    "format": "{{value | number:1}}%",
+    "min": "0", "max": "100",
+    "colors": ["#22c55e", "#f59e0b", "#a78bfa"], "seg1": "60", "seg2": "85",
+    "x": 900, "y": 560, "wires": []
+  },
+  {
+    "id": "win-gauge-vram", "type": "ui_gauge", "z": "tab-windows",
+    "name": "VRAM 게이지", "group": "win-grp-gpu", "order": 2,
+    "width": "3", "height": "3",
+    "gtype": "donut", "title": "VRAM 사용률", "label": "%",
+    "format": "{{value | number:1}}%",
+    "min": "0", "max": "100",
+    "colors": ["#22c55e", "#f59e0b", "#ef4444"], "seg1": "70", "seg2": "90",
+    "x": 900, "y": 620, "wires": []
+  },
+  {
+    "id": "win-text-gpu-temp", "type": "ui_text", "z": "tab-windows",
+    "name": "GPU 온도", "group": "win-grp-gpu", "order": 3,
+    "width": "3", "height": "2",
+    "label": "🌡 GPU 온도", "format": "{{msg.payload | number:1}} °C",
+    "layout": "col-center", "style": false, "fontSize": "22", "color": "#ef4444",
+    "x": 900, "y": 680, "wires": []
+  },
+  {
+    "id": "win-text-gpu-pwr", "type": "ui_text", "z": "tab-windows",
+    "name": "GPU 전력", "group": "win-grp-gpu", "order": 4,
+    "width": "3", "height": "2",
+    "label": "⚡ GPU 전력", "format": "{{msg.payload | number:1}} W",
+    "layout": "col-center", "style": false, "fontSize": "22", "color": "#ec4899",
+    "x": 900, "y": 740, "wires": []
+  },
+  {
+    "id": "win-chart-gpu", "type": "ui_chart", "z": "tab-windows",
+    "name": "GPU 사용률 차트", "group": "win-grp-gpu", "order": 5,
+    "width": "12", "height": "4",
+    "label": "GPU 사용률 (%)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier",
+    "dot": false, "ymin": "0", "ymax": "100",
+    "removeOlder": "10", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#a78bfa"], "useOneColor": true, "useUTC": false,
+    "x": 900, "y": 800, "wires": [[]]
+  },
+  {
+    "id": "win-chart-gpu-temp", "type": "ui_chart", "z": "tab-windows",
+    "name": "GPU 온도 차트", "group": "win-grp-gpu", "order": 6,
+    "width": "6", "height": "3",
+    "label": "GPU 온도 (°C)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier",
+    "dot": false, "ymin": "20", "ymax": "95",
+    "removeOlder": "10", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#ef4444"], "useOneColor": true, "useUTC": false,
+    "x": 900, "y": 860, "wires": [[]]
+  },
+  {
+    "id": "win-chart-gpu-pwr", "type": "ui_chart", "z": "tab-windows",
+    "name": "GPU 전력 차트", "group": "win-grp-gpu", "order": 7,
+    "width": "6", "height": "3",
+    "label": "GPU 전력 (W)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier",
+    "dot": false, "ymin": "0", "ymax": "160",
+    "removeOlder": "10", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#ec4899"], "useOneColor": true, "useUTC": false,
+    "x": 900, "y": 920, "wires": [[]]
+  },
+
+  {
+    "id": "win-gauge-ram", "type": "ui_gauge", "z": "tab-windows",
+    "name": "RAM 게이지", "group": "win-grp-memory", "order": 1,
+    "width": "4", "height": "3",
+    "gtype": "gage", "title": "RAM 사용률", "label": "%",
+    "format": "{{value | number:1}}%",
+    "min": "0", "max": "100",
+    "colors": ["#22c55e", "#f59e0b", "#ef4444"], "seg1": "70", "seg2": "85",
+    "x": 900, "y": 1000, "wires": []
+  },
+  {
+    "id": "win-text-ram-detail", "type": "ui_text", "z": "tab-windows",
+    "name": "RAM 용량", "group": "win-grp-memory", "order": 2,
+    "width": "4", "height": "2",
+    "label": "💾 사용 / 전체", "format": "{{msg.payload}}",
+    "layout": "col-center", "style": false, "fontSize": "20", "color": "#22c55e",
+    "x": 900, "y": 1060, "wires": []
+  },
+  {
+    "id": "win-chart-ram", "type": "ui_chart", "z": "tab-windows",
+    "name": "RAM 사용률 차트", "group": "win-grp-memory", "order": 3,
+    "width": "12", "height": "4",
+    "label": "RAM 사용률 (%)", "chartType": "line", "legend": "false",
+    "xformat": "HH:mm:ss", "interpolate": "bezier",
+    "dot": false, "ymin": "0", "ymax": "100",
+    "removeOlder": "10", "removeOlderPoints": "60", "removeOlderUnit": "60",
+    "colors": ["#22c55e"], "useOneColor": true, "useUTC": false,
+    "x": 900, "y": 1120, "wires": [[]]
+  }
+]

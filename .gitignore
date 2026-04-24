@@ -1,0 +1,42 @@
+# 환경변수 (비밀번호, 토큰 등)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Django
+*.sqlite3
+django/data/
+
+# Node-RED npm 캐시 & 런타임 데이터
+node-red/data/.npm/
+node-red/data/.config.*
+node-red/data/.flows.json.backup
+node-red/data/flows_cred.json
+node-red/data/package-lock.json
+node-red/data/.npm/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Docker volumes (로컬 데이터)
+mysql_data/
+mongodb_data/
+grafana_data/
+n8n_data/
+
+# Windows 에이전트 라이브러리 (용량 큼, 별도 다운로드)
+windows_agent/lib/*.dll
+
+# Logs
+*.log

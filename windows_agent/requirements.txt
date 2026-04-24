@@ -1,0 +1,6 @@
+psutil>=5.9.0
+requests>=2.31.0
+pynvml>=11.5.0
+pywin32>=306
+wmi>=1.5.1
+pythonnet>=3.0.3

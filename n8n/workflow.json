@@ -1,0 +1,146 @@
+{
+  "name": "AI 인프라 모니터링 알림",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 1 }]
+        }
+      },
+      "id": "n1",
+      "name": "1분마다 실행",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cpu_usage, mem_percent, disk_percent, recorded_at FROM system_metrics ORDER BY recorded_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "n2",
+      "name": "최신 메트릭 조회",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [460, 300],
+      "credentials": {
+        "mySql": { "id": "db-cred", "name": "infra_monitor DB" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.cpu_usage }}",
+              "rightValue": 80,
+              "operator": { "type": "number", "operation": "gt" }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.mem_percent }}",
+              "rightValue": 85,
+              "operator": { "type": "number", "operation": "gt" }
+            },
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.disk_percent }}",
+              "rightValue": 90,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "n3",
+      "name": "임계값 초과 체크",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst alerts = [];\nif (d.cpu_usage > 80)   alerts.push(`CPU ${d.cpu_usage.toFixed(1)}% (임계값 80%)`);\nif (d.mem_percent > 85)  alerts.push(`메모리 ${d.mem_percent.toFixed(1)}% (임계값 85%)`);\nif (d.disk_percent > 90) alerts.push(`디스크 ${d.disk_percent.toFixed(1)}% (임계값 90%)`);\n\nconst prompt = `당신은 리눅스 서버 모니터링 전문가입니다. 다음 서버 이상 상황을 분석해주세요.\n\n현재 알림 항목:\n${alerts.join('\\n')}\n\n현재 전체 수치:\n- CPU: ${d.cpu_usage.toFixed(1)}%\n- 메모리: ${d.mem_percent.toFixed(1)}%\n- 디스크: ${d.disk_percent.toFixed(1)}%\n\n1. 상황의 심각도 평가 (경고/위험)\n2. 가능한 원인\n3. 즉각적인 조치 방안\n\n한국어로 3문장 이내로 간결하게 답변해주세요.`;\n\nreturn [{ json: { prompt, alerts: alerts.join(', '), ...d } }];"
+      },
+      "id": "n4",
+      "name": "AI 프롬프트 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.0.11:11434/api/generate",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "model", "value": "gemma3:4b" },
+            { "name": "prompt", "value": "={{ $json.prompt }}" },
+            { "name": "stream", "value": false }
+          ]
+        },
+        "options": { "timeout": 120000 }
+      },
+      "id": "n5",
+      "name": "Ollama AI 분석",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ai_analysis (severity, title, analysis) VALUES ('warning', CONCAT('N8N 알림 - ', '{{ $('AI 프롬프트 생성').item.json.alerts }}'), '{{ $json.response }}')",
+        "options": {}
+      },
+      "id": "n6",
+      "name": "분석 결과 저장",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [1340, 200],
+      "credentials": {
+        "mySql": { "id": "db-cred", "name": "infra_monitor DB" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO alert_history (alert_type, threshold, actual_value, message) VALUES ('n8n_check', 0, 0, 'N8N 정기 점검 - 정상 상태')",
+        "options": {}
+      },
+      "id": "n7",
+      "name": "정상 상태 기록",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [900, 400],
+      "credentials": {
+        "mySql": { "id": "db-cred", "name": "infra_monitor DB" }
+      }
+    }
+  ],
+  "connections": {
+    "1분마다 실행": {
+      "main": [[{ "node": "최신 메트릭 조회", "type": "main", "index": 0 }]]
+    },
+    "최신 메트릭 조회": {
+      "main": [[{ "node": "임계값 초과 체크", "type": "main", "index": 0 }]]
+    },
+    "임계값 초과 체크": {
+      "main": [
+        [{ "node": "AI 프롬프트 생성", "type": "main", "index": 0 }],
+        [{ "node": "정상 상태 기록", "type": "main", "index": 0 }]
+      ]
+    },
+    "AI 프롬프트 생성": {
+      "main": [[{ "node": "Ollama AI 분석", "type": "main", "index": 0 }]]
+    },
+    "Ollama AI 분석": {
+      "main": [[{ "node": "분석 결과 저장", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}
